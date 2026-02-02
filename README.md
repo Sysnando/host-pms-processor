@@ -29,42 +29,61 @@ Host PMS API → Connector → S3 Raw Buckets
 ## Project Structure
 
 ```
-host-pms/
+host-pms-processor/
 ├── src/
 │   ├── config/              # Configuration and logging
 │   │   ├── settings.py      # Pydantic settings
 │   │   └── logging.py       # Structlog configuration
 │   ├── clients/             # API clients
 │   │   ├── host_api_client.py
-│   │   └── esb_client.py
+│   │   ├── esb_client.py
+│   │   └── redis_token_manager.py
 │   ├── services/            # Business logic
-│   │   ├── extraction_service.py
-│   │   ├── transformation_service.py
-│   │   └── loading_service.py
+│   │   └── orchestration_service.py
 │   ├── aws/                 # AWS service wrappers
 │   │   ├── s3_manager.py
 │   │   └── sqs_manager.py
 │   ├── models/              # Data models
 │   │   ├── host/            # Host API response models
-│   │   └── climber/         # Climber format models
+│   │   │   ├── config.py
+│   │   │   ├── reservation.py
+│   │   │   ├── inventory.py
+│   │   │   └── stat_daily.py
+│   │   ├── climber/         # Climber format models
+│   │   │   ├── config.py
+│   │   │   ├── reservation.py
+│   │   │   ├── segment.py
+│   │   │   └── inventory.py
+│   │   └── reservation_status.py
 │   ├── transformers/        # Data transformers
 │   │   ├── config_transformer.py
 │   │   ├── segment_transformer.py
-│   │   └── reservation_transformer.py
+│   │   ├── reservation_transformer.py
+│   │   └── stat_daily_transformer.py
+│   ├── utils/               # Utility functions
 │   └── main.py              # Application entry point
 ├── tests/                   # Test suite
+│   ├── db/                  # Database utilities
+│   │   └── sql_generator.py
+│   ├── test_etl_flow_with_fixtures.py
+│   ├── test_stat_daily_consolidation.py
+│   ├── test_integration.py
+│   ├── test_transformers.py
+│   ├── fetch_and_transform_local.py
+│   └── conftest.py          # Pytest configuration
+├── data_extracts/           # Local data extracts (not in repo)
+├── docs/                    # Documentation
+│   └── HPs/                 # Host PMS documentation
 ├── requirements.txt         # Python dependencies
 ├── pyproject.toml          # Project configuration
-├── Dockerfile              # Container image
-├── .env.example            # Environment variables template
-└── README.md              # This file
+└── README.md               # This file
 ```
 
 ## Installation
 
 ### Prerequisites
 
-- Python 3.11+
+- Python 3.13+
 - AWS credentials configured
 - Host PMS API subscription key
 - Climber ESB API key
@@ -269,7 +288,7 @@ mypy src/
 Deploy as a Lambda function triggered by EventBridge (scheduled task):
 - Event source: EventBridge rule (e.g., daily at 2 AM)
 - Handler: `src.main.lambda_handler`
-- Runtime: Python 3.11
+- Runtime: Python 3.13
 - Memory: 1024 MB
 - Timeout: 600 seconds
 
