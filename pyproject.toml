@@ -7,7 +7,7 @@ name = "host-pms"
 version = "0.1.0"
 description = "Hotel PMS Connector - ETL pipeline for Host PMS API integration"
 readme = "README.md"
-requires-python = ">=3.11"
+requires-python = ">=3.13"
 license = {text = "MIT"}
 authors = [
     {name = "Host Systems", email = "dev@hostsystems.com"}
@@ -18,8 +18,7 @@ classifiers = [
     "Intended Audience :: Developers",
     "License :: OSI Approved :: MIT License",
     "Programming Language :: Python :: 3",
-    "Programming Language :: Python :: 3.11",
-    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
 ]
 
 dependencies = [
@@ -52,7 +51,7 @@ packages = ["src"]
 
 [tool.black]
 line-length = 100
-target-version = ['py311']
+target-version = ['py313']
 include = '\.pyi?$'
 extend-exclude = '''
 /(
@@ -79,7 +78,7 @@ ensure_newline_before_comments = true
 skip_gitignore = true
 
 [tool.mypy]
-python_version = "3.11"
+python_version = "3.13"
 warn_return_any = true
 warn_unused_configs = true
 disallow_untyped_defs = false
