@@ -64,6 +64,7 @@ class HostPMSAPIClient:
         endpoint: str,
         data: Optional[dict[str, Any]] = None,
         params: Optional[dict[str, Any]] = None,
+        hotel_code: Optional[str] = None,
     ) -> dict[str, Any]:
         """Make an HTTP request to the Host PMS API with retry logic.
 
@@ -100,6 +101,7 @@ class HostPMSAPIClient:
                     if response.status_code == 401:
                         logger.error(
                             "Host API authentication failed",
+                            hotel_code=hotel_code,
                             endpoint=endpoint,
                             status_code=response.status_code,
                         )
@@ -111,6 +113,7 @@ class HostPMSAPIClient:
                     if response.status_code == 403:
                         logger.error(
                             "Host API forbidden",
+                            hotel_code=hotel_code,
                             endpoint=endpoint,
                             status_code=response.status_code,
                         )
@@ -122,6 +125,7 @@ class HostPMSAPIClient:
                     if response.status_code == 404:
                         logger.warning(
                             "Host API resource not found",
+                            hotel_code=hotel_code,
                             endpoint=endpoint,
                             status_code=response.status_code,
                         )
@@ -135,6 +139,7 @@ class HostPMSAPIClient:
                             wait_time = self.retry_backoff_base ** attempt
                             logger.warning(
                                 "Host API server error, retrying",
+                                hotel_code=hotel_code,
                                 endpoint=endpoint,
                                 status_code=response.status_code,
                                 attempt=attempt + 1,
@@ -146,6 +151,7 @@ class HostPMSAPIClient:
                         else:
                             logger.error(
                                 "Host API server error, max retries exceeded",
+                                hotel_code=hotel_code,
                                 endpoint=endpoint,
                                 status_code=response.status_code,
                             )
@@ -157,6 +163,7 @@ class HostPMSAPIClient:
                     if 400 <= response.status_code < 500:
                         logger.error(
                             "Host API client error",
+                            hotel_code=hotel_code,
                             endpoint=endpoint,
                             status_code=response.status_code,
                             response_text=response.text[:200],  # Limit error text
@@ -169,6 +176,7 @@ class HostPMSAPIClient:
                     if response.status_code in (200, 201, 204):
                         logger.debug(
                             "Host API request successful",
+                            hotel_code=hotel_code,
                             endpoint=endpoint,
                             method=method,
                             status_code=response.status_code,
@@ -180,6 +188,7 @@ class HostPMSAPIClient:
                     # Unexpected status code
                     logger.error(
                         "Unexpected Host API response status",
+                        hotel_code=hotel_code,
                         endpoint=endpoint,
                         status_code=response.status_code,
                     )
@@ -192,6 +201,7 @@ class HostPMSAPIClient:
                     wait_time = self.retry_backoff_base ** attempt
                     logger.warning(
                         "Host API request timeout, retrying",
+                        hotel_code=hotel_code,
                         endpoint=endpoint,
                         attempt=attempt + 1,
                         max_retries=self.max_retries,
@@ -202,6 +212,7 @@ class HostPMSAPIClient:
                 else:
                     logger.error(
                         "Host API request timeout, max retries exceeded",
+                        hotel_code=hotel_code,
                         endpoint=endpoint,
                     )
                     raise HostAPIClientError(
@@ -213,6 +224,7 @@ class HostPMSAPIClient:
                     wait_time = self.retry_backoff_base ** attempt
                     logger.warning(
                         "Host API request error, retrying",
+                        hotel_code=hotel_code,
                         endpoint=endpoint,
                         error=str(e),
                         attempt=attempt + 1,
@@ -224,6 +236,7 @@ class HostPMSAPIClient:
                 else:
                     logger.error(
                         "Host API request error, max retries exceeded",
+                        hotel_code=hotel_code,
                         endpoint=endpoint,
                         error=str(e),
                     )
@@ -253,7 +266,7 @@ class HostPMSAPIClient:
         logger.info("Fetching hotel config from Host PMS API", hotel_code=hotel_code)
         params = {"hotelCode": hotel_code}
         response = self._make_request(
-            "GET", "/ExternalRms/Config", params=params
+            "GET", "/ExternalRms/Config", params=params, hotel_code=hotel_code
         )
         logger.info(
             "Successfully fetched hotel config",
@@ -306,7 +319,7 @@ class HostPMSAPIClient:
         )
 
         first_response = self._make_request(
-            "GET", "/ExternalRms/Reservation", params=params
+            "GET", "/ExternalRms/Reservation", params=params, hotel_code=hotel_code
         )
 
         first_page_reservations = first_response.get("Reservations", [])
@@ -382,7 +395,7 @@ class HostPMSAPIClient:
                     params["updateFrom"] = update_from
 
                 response = self._make_request(
-                    "GET", "/ExternalRms/Reservation", params=params
+                    "GET", "/ExternalRms/Reservation", params=params, hotel_code=hotel_code
                 )
 
                 reservations = response.get("Reservations", [])
@@ -392,6 +405,7 @@ class HostPMSAPIClient:
             except Exception as e:
                 logger.warning(
                     "Failed to fetch page",
+                    hotel_code=hotel_code,
                     page_number=page_number,
                     error=str(e),
                 )
@@ -447,7 +461,7 @@ class HostPMSAPIClient:
             params["endDate"] = end_date
 
         response = self._make_request(
-            "GET", "/Pms/InventoryGrid", params=params
+            "GET", "/Pms/InventoryGrid", params=params, hotel_code=hotel_code
         )
         logger.info(
             "Successfully fetched inventory",
@@ -487,7 +501,7 @@ class HostPMSAPIClient:
             params["updateFrom"] = update_from
 
         response = self._make_request(
-            "GET", "/ExternalRms/Revenue", params=params
+            "GET", "/ExternalRms/Revenue", params=params, hotel_code=hotel_code
         )
 
         # Extract revenue list from response
@@ -503,6 +517,7 @@ class HostPMSAPIClient:
     def get_stat_daily(
         self,
         hotel_date_filter: str,
+        hotel_code: Optional[str] = None,
     ) -> dict[str, Any]:
         """Fetch daily statistics from Host PMS API.
 
@@ -512,6 +527,7 @@ class HostPMSAPIClient:
 
         Args:
             hotel_date_filter: Date to fetch statistics for (ISO format: "YYYY-MM-DD")
+            hotel_code: Optional hotel code for logging context
 
         Returns:
             List of StatDaily records from the API response
@@ -521,6 +537,7 @@ class HostPMSAPIClient:
         """
         logger.info(
             "Fetching StatDaily from Host PMS API",
+            hotel_code=hotel_code,
             hotel_date_filter=hotel_date_filter,
         )
         params = {
@@ -528,7 +545,7 @@ class HostPMSAPIClient:
         }
 
         response = self._make_request(
-            "GET", "/ExternalRms/StatDaily", params=params
+            "GET", "/ExternalRms/StatDaily", params=params, hotel_code=hotel_code
         )
 
         # Response is a list of records
@@ -539,6 +556,7 @@ class HostPMSAPIClient:
 
         logger.info(
             "Successfully fetched StatDaily",
+            hotel_code=hotel_code,
             hotel_date_filter=hotel_date_filter,
             record_count=record_count,
         )
