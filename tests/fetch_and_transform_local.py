@@ -26,6 +26,10 @@ from pathlib import Path
 # Add parent directory to path for imports
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
+# Load environment variables from .env file (for DATABASE_URL and other local testing vars)
+from dotenv import load_dotenv
+load_dotenv()
+
 from structlog import get_logger
 from src.config.logging import configure_logging
 from src.clients.host_api_client import HostPMSAPIClient
@@ -34,10 +38,10 @@ from src.transformers.reservation_transformer import ReservationTransformer
 from src.transformers.stat_daily_transformer import StatDailyTransformer
 from tests.db.sql_generator import generate_sql_from_reservations
 
-# Optional PostgreSQL imports (db module was removed)
+# Optional PostgreSQL imports (for local testing only)
 try:
-    from src.db.postgres_importer import import_reservations_to_postgres
-    from src.db.stat_daily_importer import import_stat_daily_to_postgres
+    from tests.db.postgres_importer import import_reservations_to_postgres
+    from tests.db.stat_daily_importer import import_stat_daily_to_postgres
     DB_IMPORT_AVAILABLE = True
 except ImportError:
     DB_IMPORT_AVAILABLE = False
@@ -169,232 +173,232 @@ def fetch_and_transform_local(hotel_code: str = None, from_date: str = None, raw
         logger.warning("Could not extract reservation statuses", hotel_code=hotel_code, error=str(e))
 
     # ==================== RESERVATIONS ====================
-    logger.info("Loading reservations", hotel_code=hotel_code)
-    try:
-        if using_raw_data:
-            # Load from existing file
-            reservations_raw_file = raw_data_dir / "03_reservations_raw.json"
-            if not reservations_raw_file.exists():
-                logger.warning("Reservations file not found", hotel_code=hotel_code, file_path=str(reservations_raw_file))
-                reservations_response = None
-            else:
-                with open(reservations_raw_file, "r") as f:
-                    reservations_response = json.load(f)
-                reservations_list = reservations_response.get("Reservations", [])
-                logger.info("Raw reservations loaded", hotel_code=hotel_code, file_path=str(reservations_raw_file), total_records=len(reservations_list))
-        else:
-            # Fetch from API
-            reservations_response = client.get_reservations(hotel_code, update_from=from_date)
+    # logger.info("Loading reservations", hotel_code=hotel_code)
+    # try:
+    #     if using_raw_data:
+    #         # Load from existing file
+    #         reservations_raw_file = raw_data_dir / "03_reservations_raw.json"
+    #         if not reservations_raw_file.exists():
+    #             logger.warning("Reservations file not found", hotel_code=hotel_code, file_path=str(reservations_raw_file))
+    #             reservations_response = None
+    #         else:
+    #             with open(reservations_raw_file, "r") as f:
+    #                 reservations_response = json.load(f)
+    #             reservations_list = reservations_response.get("Reservations", [])
+    #             logger.info("Raw reservations loaded", hotel_code=hotel_code, file_path=str(reservations_raw_file), total_records=len(reservations_list))
+    #     else:
+    #         # Fetch from API
+    #         reservations_response = client.get_reservations(hotel_code, update_from=from_date)
 
-            # Save raw reservations response
-            reservations_raw_file = hotel_dir / "03_reservations_raw.json"
-            with open(reservations_raw_file, "w") as f:
-                json.dump(reservations_response, f, indent=2)
+    #         # Save raw reservations response
+    #         reservations_raw_file = hotel_dir / "03_reservations_raw.json"
+    #         with open(reservations_raw_file, "w") as f:
+    #             json.dump(reservations_response, f, indent=2)
 
-            # Log pagination details
-            reservations_list = reservations_response.get("Reservations", [])
-            total_rows = reservations_list[0].get("TotalRows") if reservations_list else 0
-            logger.info("Raw reservations saved", hotel_code=hotel_code, file_path=str(reservations_raw_file), total_records=len(reservations_list), total_rows=total_rows if total_rows else None)
+    #         # Log pagination details
+    #         reservations_list = reservations_response.get("Reservations", [])
+    #         total_rows = reservations_list[0].get("TotalRows") if reservations_list else 0
+    #         logger.info("Raw reservations saved", hotel_code=hotel_code, file_path=str(reservations_raw_file), total_records=len(reservations_list), total_rows=total_rows if total_rows else None)
 
-        # Transform reservations (API returns "Reservations" with capital R)
-        if reservations_response is None:
-            logger.warning("Skipping reservation transformation (reservations not loaded)", hotel_code=hotel_code)
-            reservation_list = []
-        else:
-            reservation_list = reservations_response.get("Reservations", [])
+    #     # Transform reservations (API returns "Reservations" with capital R)
+    #     if reservations_response is None:
+    #         logger.warning("Skipping reservation transformation (reservations not loaded)", hotel_code=hotel_code)
+    #         reservation_list = []
+    #     else:
+    #         reservation_list = reservations_response.get("Reservations", [])
 
-        if reservation_list:
-            reservation_collection, skipped_duplicates, composite_ids, overlap_records = ReservationTransformer.transform_batch(
-                reservation_list, hotel_code, reservation_statuses, hotel_local_time
-            )
+    #     if reservation_list:
+    #         reservation_collection, skipped_duplicates, composite_ids, overlap_records = ReservationTransformer.transform_batch(
+    #             reservation_list, hotel_code, reservation_statuses, hotel_local_time
+    #         )
 
-            # Save transformed reservations
-            reservations_transformed_file = hotel_dir / "03_reservations_transformed.json"
-            with open(reservations_transformed_file, "w") as f:
-                json.dump(json.loads(reservation_collection.model_dump_json()), f, indent=2)
-            logger.info("Transformed reservations saved", hotel_code=hotel_code, file_path=str(reservations_transformed_file))
+    #         # Save transformed reservations
+    #         reservations_transformed_file = hotel_dir / "03_reservations_transformed.json"
+    #         with open(reservations_transformed_file, "w") as f:
+    #             json.dump(json.loads(reservation_collection.model_dump_json()), f, indent=2)
+    #         logger.info("Transformed reservations saved", hotel_code=hotel_code, file_path=str(reservations_transformed_file))
 
-            # Save overlap records to file
-            if overlap_records:
-                overlap_file = hotel_dir / "04_overlap_records.json"
-                with open(overlap_file, "w") as f:
-                    json.dump(overlap_records, f, indent=2)
-                print(f"   ✅ Overlap records saved: {overlap_file} ({len(overlap_records)} records)")
-            else:
-                print(f"   ℹ️  No overlap records")
+    #         # Save overlap records to file
+    #         if overlap_records:
+    #             overlap_file = hotel_dir / "04_overlap_records.json"
+    #             with open(overlap_file, "w") as f:
+    #                 json.dump(overlap_records, f, indent=2)
+    #             print(f"   ✅ Overlap records saved: {overlap_file} ({len(overlap_records)} records)")
+    #         else:
+    #             print(f"   ℹ️  No overlap records")
 
-            # Find all Price entries where date >= checkout date
-            prices_beyond_checkout = []
-            for reservation_dict in reservation_list:
-                checkout_date = reservation_dict.get("CheckOut")
-                prices = reservation_dict.get("Prices", [])
+    #         # Find all Price entries where date >= checkout date
+    #         prices_beyond_checkout = []
+    #         for reservation_dict in reservation_list:
+    #             checkout_date = reservation_dict.get("CheckOut")
+    #             prices = reservation_dict.get("Prices", [])
 
-                # Parse checkout date if it's a string
-                if isinstance(checkout_date, str):
-                    try:
-                        checkout_dt = datetime.fromisoformat(checkout_date.replace('Z', '+00:00'))
-                    except Exception:
-                        continue
-                elif isinstance(checkout_date, datetime):
-                    checkout_dt = checkout_date
-                else:
-                    continue
+    #             # Parse checkout date if it's a string
+    #             if isinstance(checkout_date, str):
+    #                 try:
+    #                     checkout_dt = datetime.fromisoformat(checkout_date.replace('Z', '+00:00'))
+    #                 except Exception:
+    #                     continue
+    #             elif isinstance(checkout_date, datetime):
+    #                 checkout_dt = checkout_date
+    #             else:
+    #                 continue
 
-                for price in prices:
-                    price_date = price.get("Date")
+    #             for price in prices:
+    #                 price_date = price.get("Date")
 
-                    # Parse price date if it's a string
-                    if isinstance(price_date, str):
-                        try:
-                            price_dt = datetime.fromisoformat(price_date.replace('Z', '+00:00'))
-                        except Exception:
-                            continue
-                    elif isinstance(price_date, datetime):
-                        price_dt = price_date
-                    else:
-                        continue
+    #                 # Parse price date if it's a string
+    #                 if isinstance(price_date, str):
+    #                     try:
+    #                         price_dt = datetime.fromisoformat(price_date.replace('Z', '+00:00'))
+    #                     except Exception:
+    #                         continue
+    #                 elif isinstance(price_date, datetime):
+    #                     price_dt = price_date
+    #                 else:
+    #                     continue
 
-                    # Check if price date >= checkout date (comparing date parts only)
-                    if price_dt.date() >= checkout_dt.date():
-                        prices_beyond_checkout.append({
-                            "reservation_id": reservation_dict.get("ResId"),
-                            "reservation_no": reservation_dict.get("ResNo"),
-                            "global_res_guest_id": reservation_dict.get("GlobalResGuestId"),
-                            "checkout_date": checkout_date if isinstance(checkout_date, str) else checkout_date.isoformat(),
-                            "price": price
-                        })
+    #                 # Check if price date >= checkout date (comparing date parts only)
+    #                 if price_dt.date() >= checkout_dt.date():
+    #                     prices_beyond_checkout.append({
+    #                         "reservation_id": reservation_dict.get("ResId"),
+    #                         "reservation_no": reservation_dict.get("ResNo"),
+    #                         "global_res_guest_id": reservation_dict.get("GlobalResGuestId"),
+    #                         "checkout_date": checkout_date if isinstance(checkout_date, str) else checkout_date.isoformat(),
+    #                         "price": price
+    #                     })
 
-            # Save prices beyond checkout to file
-            if prices_beyond_checkout:
-                prices_beyond_checkout_file = hotel_dir / "05_prices_beyond_checkout.json"
-                with open(prices_beyond_checkout_file, "w") as f:
-                    json.dump(prices_beyond_checkout, f, indent=2)
-                print(f"   ✅ Prices beyond checkout saved: {prices_beyond_checkout_file} ({len(prices_beyond_checkout)} price entries)")
-            else:
-                print(f"   ℹ️  No price entries found with dates >= checkout")
+    #         # Save prices beyond checkout to file
+    #         if prices_beyond_checkout:
+    #             prices_beyond_checkout_file = hotel_dir / "05_prices_beyond_checkout.json"
+    #             with open(prices_beyond_checkout_file, "w") as f:
+    #                 json.dump(prices_beyond_checkout, f, indent=2)
+    #             print(f"   ✅ Prices beyond checkout saved: {prices_beyond_checkout_file} ({len(prices_beyond_checkout)} price entries)")
+    #         else:
+    #             print(f"   ℹ️  No price entries found with dates >= checkout")
 
-            # Find reservations with missing price entries during the stay period
-            reservations_missing_prices = []
-            same_day_reservations = []
+    #         # Find reservations with missing price entries during the stay period
+    #         reservations_missing_prices = []
+    #         same_day_reservations = []
 
-            for reservation_dict in reservation_list:
-                checkin_date = reservation_dict.get("CheckIn")
-                checkout_date = reservation_dict.get("CheckOut")
-                prices = reservation_dict.get("Prices", [])
+    #         for reservation_dict in reservation_list:
+    #             checkin_date = reservation_dict.get("CheckIn")
+    #             checkout_date = reservation_dict.get("CheckOut")
+    #             prices = reservation_dict.get("Prices", [])
 
-                # Parse dates
-                try:
-                    if isinstance(checkin_date, str):
-                        checkin_dt = datetime.fromisoformat(checkin_date.replace('Z', '+00:00'))
-                    elif isinstance(checkin_date, datetime):
-                        checkin_dt = checkin_date
-                    else:
-                        continue
+    #             # Parse dates
+    #             try:
+    #                 if isinstance(checkin_date, str):
+    #                     checkin_dt = datetime.fromisoformat(checkin_date.replace('Z', '+00:00'))
+    #                 elif isinstance(checkin_date, datetime):
+    #                     checkin_dt = checkin_date
+    #                 else:
+    #                     continue
 
-                    if isinstance(checkout_date, str):
-                        checkout_dt = datetime.fromisoformat(checkout_date.replace('Z', '+00:00'))
-                    elif isinstance(checkout_date, datetime):
-                        checkout_dt = checkout_date
-                    else:
-                        continue
-                except Exception:
-                    continue
+    #                 if isinstance(checkout_date, str):
+    #                     checkout_dt = datetime.fromisoformat(checkout_date.replace('Z', '+00:00'))
+    #                 elif isinstance(checkout_date, datetime):
+    #                     checkout_dt = checkout_date
+    #                 else:
+    #                     continue
+    #             except Exception:
+    #                 continue
 
-                # Check for same-day check-in/check-out
-                if checkin_dt.date() == checkout_dt.date():
-                    same_day_reservations.append({
-                        "reservation_id": reservation_dict.get("ResId"),
-                        "reservation_no": reservation_dict.get("ResNo"),
-                        "global_res_guest_id": reservation_dict.get("GlobalResGuestId"),
-                        "checkin": checkin_date if isinstance(checkin_date, str) else checkin_date.isoformat(),
-                        "checkout": checkout_date if isinstance(checkout_date, str) else checkout_date.isoformat(),
-                        "rooms": reservation_dict.get("Rooms"),
-                        "price_count": len(prices),
-                        "reservation": reservation_dict
-                    })
-                    continue  # Skip further processing for same-day reservations
+    #             # Check for same-day check-in/check-out
+    #             if checkin_dt.date() == checkout_dt.date():
+    #                 same_day_reservations.append({
+    #                     "reservation_id": reservation_dict.get("ResId"),
+    #                     "reservation_no": reservation_dict.get("ResNo"),
+    #                     "global_res_guest_id": reservation_dict.get("GlobalResGuestId"),
+    #                     "checkin": checkin_date if isinstance(checkin_date, str) else checkin_date.isoformat(),
+    #                     "checkout": checkout_date if isinstance(checkout_date, str) else checkout_date.isoformat(),
+    #                     "rooms": reservation_dict.get("Rooms"),
+    #                     "price_count": len(prices),
+    #                     "reservation": reservation_dict
+    #                 })
+    #                 continue  # Skip further processing for same-day reservations
 
-                # Calculate expected stay dates (CheckIn to CheckOut-1)
-                expected_dates = set()
-                current_date = checkin_dt.date()
-                checkout_date_only = checkout_dt.date()
+    #             # Calculate expected stay dates (CheckIn to CheckOut-1)
+    #             expected_dates = set()
+    #             current_date = checkin_dt.date()
+    #             checkout_date_only = checkout_dt.date()
 
-                while current_date < checkout_date_only:
-                    expected_dates.add(current_date.isoformat())
-                    current_date += timedelta(days=1)
+    #             while current_date < checkout_date_only:
+    #                 expected_dates.add(current_date.isoformat())
+    #                 current_date += timedelta(days=1)
 
-                # Get actual price dates
-                actual_price_dates = set()
-                for price in prices:
-                    price_date = price.get("Date")
-                    try:
-                        if isinstance(price_date, str):
-                            price_dt = datetime.fromisoformat(price_date.replace('Z', '+00:00'))
-                        elif isinstance(price_date, datetime):
-                            price_dt = price_date
-                        else:
-                            continue
-                        actual_price_dates.add(price_dt.date().isoformat())
-                    except Exception:
-                        continue
+    #             # Get actual price dates
+    #             actual_price_dates = set()
+    #             for price in prices:
+    #                 price_date = price.get("Date")
+    #                 try:
+    #                     if isinstance(price_date, str):
+    #                         price_dt = datetime.fromisoformat(price_date.replace('Z', '+00:00'))
+    #                     elif isinstance(price_date, datetime):
+    #                         price_dt = price_date
+    #                     else:
+    #                         continue
+    #                     actual_price_dates.add(price_dt.date().isoformat())
+    #                 except Exception:
+    #                     continue
 
-                # Find missing dates
-                missing_dates = expected_dates - actual_price_dates
+    #             # Find missing dates
+    #             missing_dates = expected_dates - actual_price_dates
 
-                if missing_dates:
-                    reservations_missing_prices.append({
-                        "reservation_id": reservation_dict.get("ResId"),
-                        "reservation_no": reservation_dict.get("ResNo"),
-                        "global_res_guest_id": reservation_dict.get("GlobalResGuestId"),
-                        "checkin": checkin_date if isinstance(checkin_date, str) else checkin_date.isoformat(),
-                        "checkout": checkout_date if isinstance(checkout_date, str) else checkout_date.isoformat(),
-                        "expected_dates": sorted(list(expected_dates)),
-                        "actual_price_dates": sorted(list(actual_price_dates)),
-                        "missing_dates": sorted(list(missing_dates)),
-                        "missing_count": len(missing_dates),
-                        "reservation": reservation_dict
-                    })
+    #             if missing_dates:
+    #                 reservations_missing_prices.append({
+    #                     "reservation_id": reservation_dict.get("ResId"),
+    #                     "reservation_no": reservation_dict.get("ResNo"),
+    #                     "global_res_guest_id": reservation_dict.get("GlobalResGuestId"),
+    #                     "checkin": checkin_date if isinstance(checkin_date, str) else checkin_date.isoformat(),
+    #                     "checkout": checkout_date if isinstance(checkout_date, str) else checkout_date.isoformat(),
+    #                     "expected_dates": sorted(list(expected_dates)),
+    #                     "actual_price_dates": sorted(list(actual_price_dates)),
+    #                     "missing_dates": sorted(list(missing_dates)),
+    #                     "missing_count": len(missing_dates),
+    #                     "reservation": reservation_dict
+    #                 })
 
-            # Save reservations with missing prices to file
-            if reservations_missing_prices:
-                missing_prices_file = hotel_dir / "06_reservations_missing_prices.json"
-                with open(missing_prices_file, "w") as f:
-                    json.dump(reservations_missing_prices, f, indent=2)
-                print(f"   ✅ Reservations with missing prices saved: {missing_prices_file} ({len(reservations_missing_prices)} reservations)")
-            else:
-                print(f"   ℹ️  No reservations found with missing price entries")
+    #         # Save reservations with missing prices to file
+    #         if reservations_missing_prices:
+    #             missing_prices_file = hotel_dir / "06_reservations_missing_prices.json"
+    #             with open(missing_prices_file, "w") as f:
+    #                 json.dump(reservations_missing_prices, f, indent=2)
+    #             print(f"   ✅ Reservations with missing prices saved: {missing_prices_file} ({len(reservations_missing_prices)} reservations)")
+    #         else:
+    #             print(f"   ℹ️  No reservations found with missing price entries")
 
-            # Save same-day check-in/check-out reservations to file
-            if same_day_reservations:
-                same_day_file = hotel_dir / "07_reservations_same_day.json"
-                with open(same_day_file, "w") as f:
-                    json.dump(same_day_reservations, f, indent=2)
-                print(f"   ✅ Same-day reservations saved: {same_day_file} ({len(same_day_reservations)} reservations)")
-            else:
-                print(f"   ℹ️  No same-day check-in/check-out reservations found")
+    #         # Save same-day check-in/check-out reservations to file
+    #         if same_day_reservations:
+    #             same_day_file = hotel_dir / "07_reservations_same_day.json"
+    #             with open(same_day_file, "w") as f:
+    #                 json.dump(same_day_reservations, f, indent=2)
+    #             print(f"   ✅ Same-day reservations saved: {same_day_file} ({len(same_day_reservations)} reservations)")
+    #         else:
+    #             print(f"   ℹ️  No same-day check-in/check-out reservations found")
 
-            # Generate SQL INSERT script from the transformed reservations
-            reservations_list = reservation_collection.reservations
-            if reservations_list:
-                sql_file = generate_sql_from_reservations(
-                    [r.model_dump() for r in reservations_list],
-                    hotel_dir
-                )
-                if sql_file:
-                    logger.info("SQL script saved", hotel_code=hotel_code, file_name=sql_file.name)
-        else:
-            logger.info("No reservations found", hotel_code=hotel_code)
+    #         # Generate SQL INSERT script from the transformed reservations
+    #         reservations_list = reservation_collection.reservations
+    #         if reservations_list:
+    #             sql_file = generate_sql_from_reservations(
+    #                 [r.model_dump() for r in reservations_list],
+    #                 hotel_dir
+    #             )
+    #             if sql_file:
+    #                 logger.info("SQL script saved", hotel_code=hotel_code, file_name=sql_file.name)
+    #     else:
+    #         logger.info("No reservations found", hotel_code=hotel_code)
 
-    except Exception as e:
-        logger.error("Error fetching reservations", hotel_code=hotel_code, error=str(e))
+    # except Exception as e:
+    #     logger.error("Error fetching reservations", hotel_code=hotel_code, error=str(e))
 
     # ==================== STAT DAILY (INVOICE DATA) ====================
     logger.info("Loading StatDaily data", hotel_code=hotel_code)
     try:
         # Calculate date range: 30 days ago to yesterday
         today = datetime.now().date()
-        yesterday = today - timedelta(days=1)
-        start_date = today - timedelta(days=65)
+        yesterday = today - timedelta(days=30)
+        start_date = today - timedelta(days=95)
 
         print(f"   📅 Date range: {start_date} to {yesterday}")
 
@@ -524,41 +528,52 @@ def fetch_and_transform_local(hotel_code: str = None, from_date: str = None, raw
 
     # ==================== IMPORT TO POSTGRESQL ====================
     if DB_IMPORT_AVAILABLE:
-        print("\n5️⃣  Importing data to PostgreSQL...")
-        try:
-            # Import reservations (with invoices if available)
-            reservations_with_invoices_file = hotel_dir / "09_reservations_with_invoices.json"
-            reservations_transformed_file = hotel_dir / "03_reservations_transformed.json"
+        # Check if DATABASE_URL is configured
+        import os
+        database_url = os.environ.get("DATABASE_URL")
+        db_name = os.environ.get("DB_NAME")
 
-            if reservations_with_invoices_file.exists():
-                import_reservations_to_postgres(
-                    json_file_path=str(reservations_with_invoices_file),
-                    table_name="reservations2"
-                )
-                print(f"   ✅ Reservations (with invoices) imported to PostgreSQL")
-            elif reservations_transformed_file.exists():
-                import_reservations_to_postgres(
-                    json_file_path=str(reservations_transformed_file),
-                    table_name="reservations2"
-                )
-                print(f"   ✅ Reservations imported to PostgreSQL")
-            else:
-                print(f"   ⚠️  No reservations file found, skipping import")
+        if not database_url and not db_name:
+            print("\n5️⃣  PostgreSQL import skipped (DATABASE_URL not configured)")
+            print("   ℹ️  To enable database import, set DATABASE_URL environment variable:")
+            print('   export DATABASE_URL="postgresql://user:pass@localhost:5432/database"')
+        else:
+            print("\n5️⃣  Importing data to PostgreSQL...")
+            try:
+                # Import reservations (with invoices if available)
+                reservations_with_invoices_file = hotel_dir / "09_reservations_with_invoices.json"
+                reservations_transformed_file = hotel_dir / "03_reservations_transformed.json"
 
-            # Import StatDaily data
-            stat_daily_raw_file = hotel_dir / "08_stat_daily_raw.json"
-            if stat_daily_raw_file.exists():
-                import_stat_daily_to_postgres(
-                    json_file_path=str(stat_daily_raw_file),
-                    table_name="stat_daily",
-                    truncate=False
-                )
-                print(f"   ✅ StatDaily data imported to PostgreSQL")
-            else:
-                print(f"   ℹ️  No StatDaily file found, skipping import")
+                if reservations_with_invoices_file.exists():
+                    import_reservations_to_postgres(
+                        json_file_path=str(reservations_with_invoices_file),
+                        table_name="reservations2"
+                    )
+                    print(f"   ✅ Reservations (with invoices) imported to PostgreSQL")
+                elif reservations_transformed_file.exists():
+                    import_reservations_to_postgres(
+                        json_file_path=str(reservations_transformed_file),
+                        table_name="reservations2"
+                    )
+                    print(f"   ✅ Reservations imported to PostgreSQL")
+                else:
+                    print(f"   ⚠️  No reservations file found, skipping import")
 
-        except Exception as e:
-            print(f"   ❌ Error importing to PostgreSQL: {str(e)}")
+                # Import StatDaily data
+                stat_daily_raw_file = hotel_dir / "08_stat_daily_raw.json"
+                if stat_daily_raw_file.exists():
+                    import_stat_daily_to_postgres(
+                        json_file_path=str(stat_daily_raw_file),
+                        table_name="stat_daily",
+                        truncate=False
+                    )
+                    print(f"   ✅ StatDaily data imported to PostgreSQL")
+                else:
+                    print(f"   ℹ️  No StatDaily file found, skipping import")
+
+            except Exception as e:
+                print(f"   ❌ Error importing to PostgreSQL: {str(e)}")
+                print(f"   ℹ️  Database import failed, but data was successfully saved to files")
     else:
         print("\n5️⃣  PostgreSQL import skipped (db module not available)")
 

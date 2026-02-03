@@ -54,8 +54,7 @@ def configure_logging() -> None:
         # Console format for development
         console_handler = logging.StreamHandler(sys.stdout)
         console_formatter = logging.Formatter(
-            "%(asctime)s - %(name)s - %(levelname)s - %(message)s",
-            datefmt="%Y-%m-%d %H:%M:%S",
+            "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
         )
         console_handler.setFormatter(console_formatter)
         console_handler.setLevel(log_level)
