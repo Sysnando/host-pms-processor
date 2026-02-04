@@ -413,14 +413,20 @@ def fetch_and_transform_local(hotel_code: str = None, from_date: str = None, raw
 
         print(f"   📊 Fetching {len(dates_to_fetch)} days of StatDaily data...")
 
-        for date in dates_to_fetch:
-            date_str = date.isoformat()
-            try:
-                if using_raw_data:
-                    # Skip fetching if using raw data (not yet implemented for StatDaily)
-                    print(f"   ⚠️  StatDaily fetch skipped when using raw data")
-                    break
-                else:
+        # Load existing StatDaily data if using raw data
+        if using_raw_data:
+            stat_daily_raw_file = raw_data_dir / "08_stat_daily_raw.json"
+            if stat_daily_raw_file.exists():
+                with open(stat_daily_raw_file, "r") as f:
+                    all_stat_daily_records = json.load(f)
+                print(f"   ✅ Loaded existing StatDaily data: {len(all_stat_daily_records)} records")
+            else:
+                print(f"   ⚠️  StatDaily file not found in raw data directory")
+        else:
+            # Fetch from API
+            for date in dates_to_fetch:
+                date_str = date.isoformat()
+                try:
                     stat_daily_response = client.get_stat_daily(hotel_date_filter=date_str)
 
                     # Response is a list
@@ -430,9 +436,9 @@ def fetch_and_transform_local(hotel_code: str = None, from_date: str = None, raw
                     else:
                         print(f"   ⚠️  {date_str}: No data")
 
-            except Exception as e:
-                print(f"   ⚠️  {date_str}: Failed to fetch ({str(e)})")
-                continue
+                except Exception as e:
+                    print(f"   ⚠️  {date_str}: Failed to fetch ({str(e)})")
+                    continue
 
         # Save raw StatDaily data
         if all_stat_daily_records:
@@ -440,6 +446,39 @@ def fetch_and_transform_local(hotel_code: str = None, from_date: str = None, raw
             with open(stat_daily_raw_file, "w") as f:
                 json.dump(all_stat_daily_records, f, indent=2)
             print(f"   ✅ Raw StatDaily saved: {stat_daily_raw_file} ({len(all_stat_daily_records)} records)")
+
+            # ==================== CONVERT STAT DAILY TO RESERVATIONS ====================
+            print(f"\n   🔄 Converting StatDaily to Climber reservations...")
+            try:
+                from src.transformers.stat_daily_to_reservation_transformer import StatDailyToReservationTransformer
+
+                reservation_collection = StatDailyToReservationTransformer.transform_batch(
+                    all_stat_daily_records,
+                    hotel_code=hotel_code,
+                    hotel_local_time=hotel_local_time
+                )
+
+                # Save reservations from StatDaily
+                reservations_from_statdaily_file = hotel_dir / "12_reservations_from_statdaily.json"
+                with open(reservations_from_statdaily_file, "w") as f:
+                    json.dump(json.loads(reservation_collection.model_dump_json()), f, indent=2)
+
+                print(f"   ✅ Reservations from StatDaily saved: {reservations_from_statdaily_file}")
+                print(f"   📊 Created {len(reservation_collection.reservations)} reservation lines from StatDaily")
+
+                # Generate SQL INSERT script from StatDaily reservations
+                if reservation_collection.reservations:
+                    sql_file = generate_sql_from_reservations(
+                        [r.model_dump() for r in reservation_collection.reservations],
+                        hotel_dir,
+                    )
+                    if sql_file:
+                        print(f"   ✅ SQL script saved: {sql_file.name}")
+
+            except Exception as e:
+                print(f"   ❌ Error converting StatDaily to reservations: {str(e)}")
+                import traceback
+                traceback.print_exc()
 
             # Process StatDaily and update reservations
             if reservation_list and 'reservation_collection' in locals():
@@ -540,20 +579,33 @@ def fetch_and_transform_local(hotel_code: str = None, from_date: str = None, raw
         else:
             print("\n5️⃣  Importing data to PostgreSQL...")
             try:
-                # Import reservations (with invoices if available)
+                # Import reservations - priority order:
+                # 1. StatDaily-generated reservations (12_reservations_from_statdaily.json)
+                # 2. Reservations with invoices (09_reservations_with_invoices.json)
+                # 3. Transformed reservations (03_reservations_transformed.json)
+                reservations_from_statdaily_file = hotel_dir / "12_reservations_from_statdaily.json"
                 reservations_with_invoices_file = hotel_dir / "09_reservations_with_invoices.json"
                 reservations_transformed_file = hotel_dir / "03_reservations_transformed.json"
 
-                if reservations_with_invoices_file.exists():
+                if reservations_from_statdaily_file.exists():
+                    import_reservations_to_postgres(
+                        json_file_path=str(reservations_from_statdaily_file),
+                        table_name="reservations_from_statdaily",
+                        truncate=True
+                    )
+                    print(f"   ✅ Reservations from StatDaily imported to PostgreSQL (table: reservations_from_statdaily)")
+                elif reservations_with_invoices_file.exists():
                     import_reservations_to_postgres(
                         json_file_path=str(reservations_with_invoices_file),
-                        table_name="reservations2"
+                        table_name="reservations2",
+                        truncate=True
                     )
                     print(f"   ✅ Reservations (with invoices) imported to PostgreSQL")
                 elif reservations_transformed_file.exists():
                     import_reservations_to_postgres(
                         json_file_path=str(reservations_transformed_file),
-                        table_name="reservations2"
+                        table_name="reservations2",
+                        truncate=True
                     )
                     print(f"   ✅ Reservations imported to PostgreSQL")
                 else:
@@ -565,7 +617,7 @@ def fetch_and_transform_local(hotel_code: str = None, from_date: str = None, raw
                     import_stat_daily_to_postgres(
                         json_file_path=str(stat_daily_raw_file),
                         table_name="stat_daily",
-                        truncate=False
+                        truncate=True
                     )
                     print(f"   ✅ StatDaily data imported to PostgreSQL")
                 else:

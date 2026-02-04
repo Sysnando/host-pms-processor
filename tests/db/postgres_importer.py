@@ -74,7 +74,7 @@ def create_reservations_table(cursor, table_name: str = "reservations2"):
       created_date DATE,
       pax INTEGER,
       reservation_id INTEGER,
-      reservation_id_external INTEGER,
+      reservation_id_external VARCHAR(255),
       revenue_fb DECIMAL(10, 2),
       revenue_fb_invoice DECIMAL(10, 2),
       revenue_others DECIMAL(10, 2),
