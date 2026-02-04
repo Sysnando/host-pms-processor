@@ -1,4 +1,11 @@
-"""Step to process reservations."""
+"""DEPRECATED: Step to process reservations.
+
+This step is deprecated. StatDaily data is now the primary source for reservations.
+Use ProcessStatDailyStep which converts StatDaily data to reservations using
+StatDailyToReservationTransformer.
+
+This file is kept for reference only.
+"""
 
 from src.aws import S3Manager
 from src.clients import ClimberESBClient, HostPMSAPIClient
@@ -6,8 +13,11 @@ from src.services.pipeline import PipelineContext, PipelineStep
 from src.transformers import ReservationTransformer
 
 
-class ProcessReservationsStep(PipelineStep):
-    """Fetch, transform, and upload reservations."""
+class DeprecatedProcessReservationsStep(PipelineStep):
+    """DEPRECATED: Fetch, transform, and upload reservations.
+
+    This step is no longer used. StatDaily is the primary data source.
+    """
 
     def __init__(
         self,

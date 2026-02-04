@@ -12,7 +12,6 @@ from src.services.pipeline.steps import (
     FetchParametersStep,
     ProcessConfigStep,
     ProcessInventoryStep,
-    ProcessReservationsStep,
     ProcessSegmentsStep,
     ProcessStatDailyStep,
     SendNotificationsStep,
@@ -57,13 +56,13 @@ class HostPMSConnectorOrchestrator:
             ProcessInventoryStep(self.esb_client, self.s3_manager),
             # Step 4: Process segments (optional)
             ProcessSegmentsStep(self.esb_client, self.s3_manager),
-            # Step 5: Process reservations (optional)
-            ProcessReservationsStep(self.host_api_client, self.esb_client, self.s3_manager),
-            # Step 6: Process StatDaily and update invoices (optional)
+            # Step 5: Process StatDaily and convert to reservations (optional)
+            # This step replaces the old ProcessReservationsStep
+            # StatDaily is the primary source for reservation data
             ProcessStatDailyStep(self.host_api_client, self.esb_client, self.s3_manager),
-            # Step 7: Update last import date (optional)
+            # Step 6: Update last import date (optional)
             UpdateImportDateStep(self.esb_client),
-            # Step 8: Send SQS notifications (optional)
+            # Step 7: Send SQS notifications (optional)
             SendNotificationsStep(self.sqs_manager),
         ]
 
