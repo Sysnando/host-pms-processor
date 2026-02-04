@@ -190,17 +190,6 @@ class StatDailyToReservationTransformer:
                 ):
                     revenue_records.append(record)
 
-        # Validate: each group should have at least one HISTORY-OCCUPANCY record
-        if not occupancy_records:
-            logger.warning(
-                "Group missing HISTORY-OCCUPANCY record",
-                hotel_code=hotel_code,
-                res_no=records[0].res_no,
-                res_id=records[0].res_id,
-                hotel_date=records[0].hotel_date,
-                record_types=[r.record_type for r in records],
-            )
-
         # Use first occupancy record as base, or first revenue record if no occupancy
         base_record = occupancy_records[0] if occupancy_records else (
             revenue_records[0] if revenue_records else records[0]
