@@ -561,3 +561,55 @@ class HostPMSAPIClient:
             record_count=record_count,
         )
         return response
+
+    def get_stat_summary(
+        self,
+        from_date: str,
+        to_date: str,
+        hotel_code: Optional[str] = None,
+    ) -> list[dict[str, Any]]:
+        """Fetch daily statistics summary from Host PMS API.
+
+        Returns aggregated statistics per day with room nights and revenue totals.
+        Used for validation of StatDaily transformer results.
+
+        Args:
+            from_date: Start date (ISO format: "YYYY-MM-DD")
+            to_date: End date (ISO format: "YYYY-MM-DD")
+            hotel_code: Optional hotel code for logging context
+
+        Returns:
+            List of StatSummary records from the API response
+
+        Raises:
+            HostAPIClientError: If the API request fails
+        """
+        logger.info(
+            "Fetching StatSummary from Host PMS API",
+            hotel_code=hotel_code,
+            from_date=from_date,
+            to_date=to_date,
+        )
+        params = {
+            "fromdate": from_date,
+            "todate": to_date,
+        }
+
+        response = self._make_request(
+            "GET", "/ExternalRms/StatSummary", params=params, hotel_code=hotel_code
+        )
+
+        # Response is a list of records
+        if isinstance(response, list):
+            record_count = len(response)
+        else:
+            record_count = 0
+
+        logger.info(
+            "Successfully fetched StatSummary",
+            hotel_code=hotel_code,
+            from_date=from_date,
+            to_date=to_date,
+            record_count=record_count,
+        )
+        return response

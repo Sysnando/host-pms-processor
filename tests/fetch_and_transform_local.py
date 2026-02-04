@@ -42,11 +42,13 @@ from tests.db.sql_generator import generate_sql_from_reservations
 try:
     from tests.db.postgres_importer import import_reservations_to_postgres
     from tests.db.stat_daily_importer import import_stat_daily_to_postgres
+    from tests.db.stat_summary_importer import import_stat_summary_to_postgres
     DB_IMPORT_AVAILABLE = True
 except ImportError:
     DB_IMPORT_AVAILABLE = False
     import_reservations_to_postgres = None
     import_stat_daily_to_postgres = None
+    import_stat_summary_to_postgres = None
 
 
 def fetch_and_transform_local(hotel_code: str = None, from_date: str = None, raw_data_path: str = None):
@@ -540,6 +542,45 @@ def fetch_and_transform_local(hotel_code: str = None, from_date: str = None, raw
     except Exception as e:
         print(f"   ❌ Error with StatDaily: {str(e)}")
 
+    # ==================== STAT SUMMARY (VALIDATION DATA) ====================
+    print(f"\n   📊 Fetching StatSummary for validation...")
+    try:
+        # Use the same date range as StatDaily for comparison
+        from_date_str = start_date.isoformat()
+        to_date_str = yesterday.isoformat()
+
+        if not using_raw_data:
+            # Fetch from API
+            stat_summary_response = client.get_stat_summary(
+                from_date=from_date_str,
+                to_date=to_date_str,
+                hotel_code=hotel_code
+            )
+
+            # Save raw StatSummary data
+            if stat_summary_response:
+                stat_summary_raw_file = hotel_dir / "13_stat_summary_raw.json"
+                with open(stat_summary_raw_file, "w") as f:
+                    json.dump(stat_summary_response, f, indent=2)
+                print(f"   ✅ Raw StatSummary saved: {stat_summary_raw_file} ({len(stat_summary_response)} records)")
+                print(f"   📅 StatSummary date range: {from_date_str} to {to_date_str}")
+            else:
+                print(f"   ⚠️  No StatSummary data returned from API")
+        else:
+            # Load from existing file if available
+            stat_summary_raw_file = raw_data_dir / "13_stat_summary_raw.json"
+            if stat_summary_raw_file.exists():
+                with open(stat_summary_raw_file, "r") as f:
+                    stat_summary_response = json.load(f)
+                print(f"   ✅ Loaded existing StatSummary data: {len(stat_summary_response)} records")
+            else:
+                print(f"   ⚠️  StatSummary file not found in raw data directory")
+                stat_summary_response = None
+
+    except Exception as e:
+        print(f"   ❌ Error with StatSummary: {str(e)}")
+        stat_summary_response = None
+
     # ==================== INVENTORY ====================
     logger.info("Loading inventory grid", hotel_code=hotel_code)
     try:
@@ -622,6 +663,18 @@ def fetch_and_transform_local(hotel_code: str = None, from_date: str = None, raw
                     print(f"   ✅ StatDaily data imported to PostgreSQL")
                 else:
                     print(f"   ℹ️  No StatDaily file found, skipping import")
+
+                # Import StatSummary data (validation data)
+                stat_summary_raw_file = hotel_dir / "13_stat_summary_raw.json"
+                if stat_summary_raw_file.exists():
+                    import_stat_summary_to_postgres(
+                        json_file_path=str(stat_summary_raw_file),
+                        table_name="stat_summary",
+                        truncate=True
+                    )
+                    print(f"   ✅ StatSummary data imported to PostgreSQL (validation table)")
+                else:
+                    print(f"   ℹ️  No StatSummary file found, skipping import")
 
             except Exception as e:
                 print(f"   ❌ Error importing to PostgreSQL: {str(e)}")
