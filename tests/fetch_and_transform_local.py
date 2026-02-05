@@ -427,7 +427,7 @@ def fetch_and_transform_local(hotel_code: str = None, from_date: str = None, raw
             for date in dates_to_fetch:
                 date_str = date.isoformat()
                 try:
-                    stat_daily_response = client.get_stat_daily(hotel_date_filter=date_str)
+                    stat_daily_response = client.get_stat_daily(hotel_code=hotel_code, hotel_date_filter=date_str)
 
                     # Response is a list
                     if isinstance(stat_daily_response, list):
