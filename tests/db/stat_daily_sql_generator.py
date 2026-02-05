@@ -93,22 +93,6 @@ class StatDailySQLGenerator:
             escaped = str(value).replace("'", "''")
             return f"'{escaped}'"
 
-    def _convert_snake_case(self, camel_case: str) -> str:
-        """Convert CamelCase to snake_case.
-
-        Args:
-            camel_case: CamelCase string
-
-        Returns:
-            snake_case string
-        """
-        result = []
-        for i, char in enumerate(camel_case):
-            if char.isupper() and i > 0:
-                result.append('_')
-            result.append(char.lower())
-        return ''.join(result)
-
     def generate_inserts(self, stat_daily_records: list[dict[str, Any]]) -> str:
         """Generate SQL INSERT statements from stat_daily records.
 
