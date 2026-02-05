@@ -2,10 +2,10 @@
 """
 Quick script to import reservations data to PostgreSQL.
 
-Usage:
-    python scripts/import_reservations.py
-    python scripts/import_reservations.py --json-file path/to/file.json
-    python scripts/import_reservations.py --truncate
+Usage (from the repository root):
+    python tests/scripts/import_reservations.py
+    python tests/scripts/import_reservations.py --json-file path/to/file.json
+    python tests/scripts/import_reservations.py --truncate
 """
 
 import os
