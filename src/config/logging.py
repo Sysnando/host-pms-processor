@@ -40,33 +40,17 @@ def configure_logging() -> None:
     # Configure standard library logging
     log_level = getattr(logging, settings.logging.level)
 
-    # Create handlers based on format
-    handlers: list[logging.Handler] = []
-
-    if settings.logging.format == "json":
-        # JSON format for production
-        json_handler = logging.StreamHandler(sys.stdout)
-        json_formatter = jsonlogger.JsonFormatter()
-        json_handler.setFormatter(json_formatter)
-        json_handler.setLevel(log_level)
-        handlers.append(json_handler)
-    else:
-        # Console format for development
-        console_handler = logging.StreamHandler(sys.stdout)
-        console_formatter = logging.Formatter(
-            "%(asctime)s - %(name)s - %(levelname)s - %(message)s",
-            datefmt="%Y-%m-%d %H:%M:%S",
-        )
-        console_handler.setFormatter(console_formatter)
-        console_handler.setLevel(log_level)
-        handlers.append(console_handler)
+    # Create a plain handler - structlog will handle all formatting
+    handler = logging.StreamHandler(sys.stdout)
+    handler.setLevel(log_level)
+    # Use minimal formatter - structlog processors will handle the rest
+    handler.setFormatter(logging.Formatter("%(message)s"))
 
     # Configure root logger
     root_logger = logging.getLogger()
     root_logger.setLevel(log_level)
     root_logger.handlers.clear()
-    for handler in handlers:
-        root_logger.addHandler(handler)
+    root_logger.addHandler(handler)
 
     # Silence noisy third-party loggers
     logging.getLogger("httpcore").setLevel(logging.WARNING)
@@ -87,7 +71,7 @@ def configure_logging() -> None:
             add_hotel_code_prefix,  # Add [HOTELCODE] prefix before rendering
             structlog.processors.JSONRenderer()
             if settings.logging.format == "json"
-            else structlog.dev.ConsoleRenderer(),
+            else structlog.dev.ConsoleRenderer(pad_event=25),  # Cleaner console output with padding
         ],
         context_class=dict,
         logger_factory=structlog.stdlib.LoggerFactory(),
