@@ -287,7 +287,7 @@ if __name__ == "__main__":
     data_extracts_dir = Path(__file__).parent.parent.parent / "data_extracts"
 
     # Get all extract directories (sorted by modification time, most recent first)
-    extract_dirs = sorted(data_extracts_dir.glob("PTLISLSA_*"), key=lambda p: p.stat().st_mtime, reverse=True)
+    extract_dirs = sorted(data_extracts_dir.glob("*_*"), key=lambda p: p.stat().st_mtime, reverse=True)
 
     if not extract_dirs:
         print("❌ No data extract directories found")
