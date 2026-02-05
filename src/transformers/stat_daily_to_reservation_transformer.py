@@ -16,8 +16,8 @@ from src.models.host.stat_daily import StatDailyRecord
 logger = get_logger(__name__)
 
 # Charge code configuration
-ROOM_CHARGE_CODES = ["ALOJ", "OB"]  # Room revenue (ALOJ=accommodation, OB=overbooking)
-OTHER_CHARGE_CODES = ["TXCANCEL"]  # Other charges to include
+ROOM_CHARGE_CODES = ["ALOJ", "OB", "TXCANCEL"]  # Room revenue (ALOJ=accommodation, OB=overbooking, TXCANCEL=cancellation fee)
+OTHER_CHARGE_CODES = []  # Other charges to include (currently none)
 NOSHOW_CHARGE_CODES = ["NOSHOW"]  # No-show charges
 EXCLUDED_CHARGE_CODES = ["PA", "PAEXTRA", "BARBEB13"]  # F&B - explicitly excluded
 
