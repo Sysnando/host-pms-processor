@@ -3,7 +3,6 @@
 import json
 import os
 from pathlib import Path
-from typing import Any, Optional
 
 import psycopg2
 from psycopg2.extras import execute_batch
