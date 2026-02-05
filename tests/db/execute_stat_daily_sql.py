@@ -172,9 +172,10 @@ def main():
         sql_file = Path(args.sql_file)
     else:
         # Find latest stat_daily_insert.sql in data_extracts
+        # Pattern matches: HOTELCODE_YYYYMMDD_HHMMSS (e.g., PTLISLSA_20251123_165155)
         data_extracts_dir = Path(__file__).parent.parent.parent / "data_extracts"
         extract_dirs = sorted(
-            data_extracts_dir.glob("PTLISLSA_*"),
+            data_extracts_dir.glob("*_*"),
             key=lambda p: p.stat().st_mtime,
             reverse=True
         )

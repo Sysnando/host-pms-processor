@@ -71,7 +71,7 @@ class ProcessStatDailyStep(PipelineStep):
             while current_date <= end_date:
                 try:
                     date_str = current_date.isoformat()
-                    stat_daily_response = await self.host_api_client.get_stat_daily(
+                    stat_daily_response = self.host_api_client.get_stat_daily(
                         hotel_date_filter=date_str
                     )
 
