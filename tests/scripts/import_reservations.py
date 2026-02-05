@@ -8,7 +8,6 @@ Usage (from the repository root):
     python tests/scripts/import_reservations.py --truncate
 """
 
-import os
 import sys
 from pathlib import Path
 
