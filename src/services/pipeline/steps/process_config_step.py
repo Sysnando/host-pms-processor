@@ -38,7 +38,7 @@ class ProcessConfigStep(PipelineStep):
         """
         try:
             # Fetch config from Host PMS
-            context.config_response = await self.host_api_client.get_hotel_config(
+            context.config_response = self.host_api_client.get_hotel_config(
                 context.hotel_code
             )
 

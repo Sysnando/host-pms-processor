@@ -48,7 +48,7 @@ class DeprecatedProcessReservationsStep(PipelineStep):
         """
         try:
             # Fetch reservations from Host PMS
-            context.reservations_response = await self.host_api_client.get_reservations(
+            context.reservations_response = self.host_api_client.get_reservations(
                 hotel_code=context.hotel_code,
                 update_from=context.last_import_date,
             )

@@ -34,8 +34,6 @@ from structlog import get_logger
 from src.config.logging import configure_logging
 from src.clients.host_api_client import HostPMSAPIClient
 from src.transformers.config_transformer import ConfigTransformer
-from src.transformers.reservation_transformer import ReservationTransformer
-from src.transformers.stat_daily_transformer import StatDailyTransformer
 from tests.db.sql_generator import generate_sql_from_reservations
 
 # Optional PostgreSQL imports (for local testing only)
@@ -481,60 +479,6 @@ def fetch_and_transform_local(hotel_code: str = None, from_date: str = None, raw
                 print(f"   ❌ Error converting StatDaily to reservations: {str(e)}")
                 import traceback
                 traceback.print_exc()
-
-            # Process StatDaily and update reservations
-            if reservation_list and 'reservation_collection' in locals():
-                print(f"\n   🔄 Applying StatDaily invoice data to reservations...")
-                updated_collection, stats = StatDailyTransformer.process_stat_daily_for_reservations(
-                    all_stat_daily_records,
-                    reservation_collection
-                )
-
-                # Save updated reservations
-                reservations_with_invoices_file = hotel_dir / "09_reservations_with_invoices.json"
-                with open(reservations_with_invoices_file, "w") as f:
-                    json.dump(json.loads(updated_collection.model_dump_json()), f, indent=2)
-                print(f"   ✅ Updated reservations saved: {reservations_with_invoices_file}")
-                print(f"   📊 Updated {stats['updated_reservations']}/{stats['total_reservations']} reservations ({stats['match_rate']})")
-
-                # Save consolidated records separately for easier inspection
-                if stats.get('consolidated_records'):
-                    consolidated_file = hotel_dir / "10_stat_daily_consolidated.json"
-                    # Convert datetime objects to ISO format strings for JSON serialization
-                    consolidated_records_serializable = []
-                    for record in stats['consolidated_records']:
-                        serializable_record = record.copy()
-                        if isinstance(serializable_record.get('hotel_date'), datetime):
-                            serializable_record['hotel_date'] = serializable_record['hotel_date'].isoformat()
-                        consolidated_records_serializable.append(serializable_record)
-
-                    with open(consolidated_file, "w") as f:
-                        json.dump(consolidated_records_serializable, f, indent=2)
-                    print(f"   ✅ Consolidated StatDaily records saved: {consolidated_file} ({len(consolidated_records_serializable)} records)")
-
-                # Save processing stats (remove consolidated_records from stats to keep it clean)
-                stats_for_file = stats.copy()
-                stats_for_file.pop('consolidated_records', None)  # Remove to avoid duplication
-
-                stats_file = hotel_dir / "11_stat_daily_stats.json"
-                with open(stats_file, "w") as f:
-                    json.dump(stats_for_file, f, indent=2)
-                print(f"   ✅ StatDaily stats saved: {stats_file}")
-
-                # Update the reservation_collection for downstream use
-                reservation_collection = updated_collection
-
-                # Re-generate SQL with updated data
-                reservations_list = reservation_collection.reservations
-                if reservations_list:
-                    sql_file = generate_sql_from_reservations(
-                        [r.model_dump() for r in reservations_list],
-                        hotel_dir
-                    )
-                    if sql_file:
-                        print(f"   ✅ Updated SQL script saved: {sql_file.name}")
-            else:
-                print(f"   ⚠️  No reservations to update with StatDaily data")
 
         else:
             print(f"   ℹ️  No StatDaily data fetched")
