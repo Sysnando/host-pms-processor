@@ -62,7 +62,7 @@ def main():
         # Prefer file with invoices if available
         data_extracts_dir = Path(__file__).parent.parent.parent / "data_extracts"
         extract_dirs = sorted(
-            data_extracts_dir.glob("*_*"),
+            data_extracts_dir.glob("*_[0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9]_*"),
             key=lambda p: p.stat().st_mtime,
             reverse=True,
         )
