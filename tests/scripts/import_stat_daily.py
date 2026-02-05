@@ -3,9 +3,9 @@
 Quick script to import stat_daily data to PostgreSQL.
 
 Usage:
-    python scripts/import_stat_daily.py
-    python scripts/import_stat_daily.py --json-file path/to/file.json
-    python scripts/import_stat_daily.py --truncate
+    python tests/scripts/import_stat_daily.py
+    python tests/scripts/import_stat_daily.py --json-file path/to/file.json
+    python tests/scripts/import_stat_daily.py --truncate
 """
 
 import os
