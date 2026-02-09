@@ -43,6 +43,10 @@ class HostPMSSettings(BaseSettings):
     request_timeout: int = 30
     max_retries: int = 3
 
+    # StatDaily date range configuration
+    stat_daily_days_back_start: int = 95  # Days back from today for start date (default: 95 days ago)
+    stat_daily_days_back_end: int = 30    # Days back from today for end date (default: 30 days ago)
+
     model_config = SettingsConfigDict(env_prefix="HOST_API_")
 
 

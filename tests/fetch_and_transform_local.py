@@ -5,6 +5,10 @@ Usage (fetch from API):
     python fetch_and_transform_local.py --hotel-code HOTEL001 --from-date 1970-01-01T00:00:00Z
     python fetch_and_transform_local.py --hotel-code PTLISLSA --from-date 2025-01-01T00:00:00Z
 
+Usage (fetch with custom StatDaily date range):
+    python fetch_and_transform_local.py --hotel-code PTLISLSA --from-date 2025-01-01T00:00:00Z \
+        --stat-daily-start-date 2025-01-01 --stat-daily-end-date 2025-02-01
+
 Usage (re-process existing raw data):
     python fetch_and_transform_local.py --raw-data-path PTLISLSA_20251123_165155
     python fetch_and_transform_local.py --raw-data-path data_extracts/PTLISLSA_20251123_165155
@@ -15,6 +19,8 @@ Notes:
     - --hotel-code: Hotel code identifier
     - --from-date: Use 1970-01-01T00:00:00Z for full sync, or a recent date for incremental sync
     - --raw-data-path: Directory name or full path in data_extracts (e.g., PTLISLSA_20251123_165155)
+    - --stat-daily-start-date: Optional start date for StatDaily in YYYY-MM-DD format (default: 95 days ago)
+    - --stat-daily-end-date: Optional end date for StatDaily in YYYY-MM-DD format (default: 30 days ago)
 """
 
 import argparse
@@ -49,7 +55,13 @@ except ImportError:
     import_stat_summary_to_postgres = None
 
 
-def fetch_and_transform_local(hotel_code: str = None, from_date: str = None, raw_data_path: str = None):
+def fetch_and_transform_local(
+    hotel_code: str = None,
+    from_date: str = None,
+    raw_data_path: str = None,
+    stat_daily_start_date: str = None,
+    stat_daily_end_date: str = None,
+):
     """Fetch data from Host PMS API and save raw and transformed responses locally, or re-process existing raw data."""
 
     # Configure logging
@@ -395,19 +407,33 @@ def fetch_and_transform_local(hotel_code: str = None, from_date: str = None, raw
     # ==================== STAT DAILY (INVOICE DATA) ====================
     logger.info("Loading StatDaily data", hotel_code=hotel_code)
     try:
-        # Calculate date range: 30 days ago to yesterday
+        # Calculate date range from arguments or use defaults
         today = datetime.now().date()
-        yesterday = today - timedelta(days=30)
-        start_date = today - timedelta(days=95)
 
-        print(f"   📅 Date range: {start_date} to {yesterday}")
+        if stat_daily_start_date:
+            # Parse custom start date from argument (YYYY-MM-DD format)
+            start_date = datetime.strptime(stat_daily_start_date, "%Y-%m-%d").date()
+        else:
+            # Default: 95 days ago
+            start_date = today - timedelta(days=95)
+
+        if stat_daily_end_date:
+            # Parse custom end date from argument (YYYY-MM-DD format)
+            end_date = datetime.strptime(stat_daily_end_date, "%Y-%m-%d").date()
+        else:
+            # Default: 30 days ago
+            end_date = today - timedelta(days=30)
+
+        print(f"   📅 Date range: {start_date} to {end_date}")
+        if stat_daily_start_date or stat_daily_end_date:
+            print(f"   ℹ️  Using custom date range from command-line arguments")
 
         # Fetch StatDaily for each date in range
         all_stat_daily_records = []
         dates_to_fetch = []
         current_date = start_date
 
-        while current_date <= yesterday:
+        while current_date <= end_date:
             dates_to_fetch.append(current_date)
             current_date += timedelta(days=1)
 
@@ -491,7 +517,7 @@ def fetch_and_transform_local(hotel_code: str = None, from_date: str = None, raw
     try:
         # Use the same date range as StatDaily for comparison
         from_date_str = start_date.isoformat()
-        to_date_str = yesterday.isoformat()
+        to_date_str = end_date.isoformat()
 
         if not using_raw_data:
             # Fetch from API
@@ -657,6 +683,18 @@ def main():
         required=False,
         help="Path to raw data directory in data_extracts (e.g., PTLISLSA_20251123_165155 or data_extracts/PTLISLSA_20251123_165155) - if provided, skips API calls"
     )
+    parser.add_argument(
+        "--stat-daily-start-date",
+        type=str,
+        required=False,
+        help="StatDaily start date in YYYY-MM-DD format (defaults to 95 days ago)"
+    )
+    parser.add_argument(
+        "--stat-daily-end-date",
+        type=str,
+        required=False,
+        help="StatDaily end date in YYYY-MM-DD format (defaults to 30 days ago)"
+    )
 
     args = parser.parse_args()
 
@@ -668,7 +706,9 @@ def main():
     fetch_and_transform_local(
         hotel_code=args.hotel_code,
         from_date=args.from_date,
-        raw_data_path=args.raw_data_path
+        raw_data_path=args.raw_data_path,
+        stat_daily_start_date=args.stat_daily_start_date,
+        stat_daily_end_date=args.stat_daily_end_date,
     )
 
 
