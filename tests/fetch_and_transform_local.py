@@ -481,7 +481,8 @@ def fetch_and_transform_local(
                 reservation_collection = StatDailyToReservationTransformer.transform_batch(
                     all_stat_daily_records,
                     hotel_code=hotel_code,
-                    hotel_local_time=hotel_local_time
+                    hotel_local_time=hotel_local_time,
+                    config_response=config_response,
                 )
 
                 # Save reservations from StatDaily

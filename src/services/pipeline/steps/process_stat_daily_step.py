@@ -147,6 +147,7 @@ class ProcessStatDailyStep(PipelineStep):
                     all_stat_daily_records,
                     hotel_code=context.hotel_code,
                     hotel_local_time=hotel_local_time,
+                    config_response=context.config_response,
                 )
 
                 # Upload processed reservations
