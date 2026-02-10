@@ -21,16 +21,16 @@ class StatDailyTransformer:
     def consolidate_stat_daily_records(
         stat_daily_records: list[StatDailyRecord] | list[dict[str, Any]],
     ) -> list[dict[str, Any]]:
-        """Consolidate HISTORY-REVENUE and HISTORY-OCCUPANCY records into single entries.
+        """Consolidate REVENUE and OCCUPANCY records into single entries.
 
         Each reservation typically has multiple StatDaily entries per day:
-        - HISTORY-REVENUE: Contains revenue data
-        - HISTORY-OCCUPANCY: Contains occupancy data and correct HotelDate
+        - HISTORY-REVENUE / FORECAST-REVENUE: Contains revenue data
+        - HISTORY-OCCUPANCY / FORECAST-OCCUPANCY: Contains occupancy data and correct HotelDate
 
         This method:
         1. Groups records by (ResNo, ResId, ChargeCode)
-        2. Extracts revenue from HISTORY-REVENUE records (only ALOJ, NOSHOW, OB)
-        3. Uses HotelDate from HISTORY-OCCUPANCY record
+        2. Extracts revenue from revenue records (only ALOJ, NOSHOW, OB)
+        3. Uses HotelDate from occupancy record
         4. Returns consolidated records with correct date and revenue
 
         Args:
@@ -72,10 +72,17 @@ class StatDailyTransformer:
         # Consolidate groups
         consolidated = []
         for (res_no, res_id, charge_code), records_by_type in groups.items():
-            revenue_record = records_by_type.get("HISTORY-REVENUE")
-            occupancy_record = records_by_type.get("HISTORY-OCCUPANCY")
+            # Try to get revenue and occupancy records (HISTORY or FORECAST)
+            revenue_record = (
+                records_by_type.get("HISTORY-REVENUE") or
+                records_by_type.get("FORECAST-REVENUE")
+            )
+            occupancy_record = (
+                records_by_type.get("HISTORY-OCCUPANCY") or
+                records_by_type.get("FORECAST-OCCUPANCY")
+            )
 
-            # Use HotelDate from HISTORY-OCCUPANCY if available, otherwise from HISTORY-REVENUE
+            # Use HotelDate from occupancy record if available, otherwise from revenue record
             if occupancy_record:
                 hotel_date = occupancy_record.hotel_date
             elif revenue_record:
@@ -84,14 +91,14 @@ class StatDailyTransformer:
                 # No valid records for this group
                 continue
 
-            # Get revenue from HISTORY-REVENUE record
+            # Get revenue from revenue record
             if revenue_record:
                 revenue_net = revenue_record.revenue_net
                 global_res_guest_id = revenue_record.global_res_guest_id
             else:
                 # No revenue record, skip this group
                 logger.debug(
-                    "No HISTORY-REVENUE record found",
+                    "No revenue record found",
                     res_no=res_no,
                     res_id=res_id,
                     charge_code=charge_code,
@@ -321,8 +328,8 @@ class StatDailyTransformer:
         """Full pipeline: consolidate, aggregate, and update reservations with StatDaily data.
 
         Process flow:
-        1. Consolidate HISTORY-REVENUE and HISTORY-OCCUPANCY records
-        2. Use HotelDate from HISTORY-OCCUPANCY (corrects edge cases)
+        1. Consolidate revenue and occupancy records (HISTORY and FORECAST)
+        2. Use HotelDate from occupancy record (corrects edge cases)
         3. Aggregate revenue by key (separate for regular and NOSHOW)
         4. Update reservation invoices
 
@@ -339,7 +346,7 @@ class StatDailyTransformer:
             total_reservations=len(reservation_collection.reservations),
         )
 
-        # Step 1: Consolidate HISTORY-REVENUE and HISTORY-OCCUPANCY records
+        # Step 1: Consolidate revenue and occupancy records (HISTORY and FORECAST)
         # This combines multiple record types per day and uses correct HotelDate from occupancy
         consolidated_records = StatDailyTransformer.consolidate_stat_daily_records(
             stat_daily_records

@@ -237,15 +237,15 @@ class StatDailyToReservationTransformer:
         if room_charge_codes is None:
             room_charge_codes = set(ROOM_CHARGE_CODES)
 
-        # Find ALL HISTORY-OCCUPANCY records and HISTORY-REVENUE records
-        # Multiple HISTORY-OCCUPANCY records can exist for the same reservation-day
+        # Find ALL OCCUPANCY and REVENUE records (both HISTORY and FORECAST)
+        # Multiple occupancy records can exist for the same reservation-day
         occupancy_records = []
         revenue_records = []
 
         for record in records:
-            if record.record_type == "HISTORY-OCCUPANCY":
+            if record.record_type in ("HISTORY-OCCUPANCY", "FORECAST-OCCUPANCY"):
                 occupancy_records.append(record)
-            elif record.record_type == "HISTORY-REVENUE":
+            elif record.record_type in ("HISTORY-REVENUE", "FORECAST-REVENUE"):
                 # Only include room-related charge codes (dynamically extracted from config)
                 # NOSHOW charges are handled separately but still included
                 if record.charge_code in room_charge_codes or record.charge_code in NOSHOW_CHARGE_CODES:
@@ -287,9 +287,9 @@ class StatDailyToReservationTransformer:
                 f"{base_record.res_no}-{base_record.global_res_guest_id}"
             )
 
-        # Get occupancy data from HISTORY-OCCUPANCY records
+        # Get occupancy data from occupancy records (HISTORY-OCCUPANCY or FORECAST-OCCUPANCY)
         # IMPORTANT: Sum room_nights and pax from ALL occupancy records
-        # Multiple HISTORY-OCCUPANCY records can exist for the same reservation-day
+        # Multiple occupancy records can exist for the same reservation-day
         if occupancy_records:
             # Sum room_nights from all occupancy records
             rooms = sum(occ.room_nights if occ.room_nights else 0 for occ in occupancy_records)
@@ -305,7 +305,7 @@ class StatDailyToReservationTransformer:
             pax = 0
             room_code = "UNASSIGNED"
 
-        # Aggregate revenue from HISTORY-REVENUE records
+        # Aggregate revenue from revenue records (HISTORY-REVENUE or FORECAST-REVENUE)
         revenue_room = 0.0
         revenue_others = 0.0
         is_noshow = False

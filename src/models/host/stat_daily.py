@@ -16,7 +16,7 @@ class StatDailyRecord(BaseModel):
 
     row_number: int = Field(alias="RowNumber")
     total_rows: int = Field(alias="TotalRows")
-    record_type: str = Field(alias="RecordType")  # e.g., "HISTORY-REVENUE", "HISTORY-OCCUPANCY"
+    record_type: str = Field(alias="RecordType")  # e.g., "HISTORY-REVENUE", "HISTORY-OCCUPANCY", "FORECAST-REVENUE", "FORECAST-OCCUPANCY"
     hotel_date: datetime = Field(alias="HotelDate")
     res_no: int = Field(alias="ResNo")
     res_id: int = Field(alias="ResId")
