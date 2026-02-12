@@ -12,7 +12,6 @@ from structlog import get_logger
 
 from src.models.climber.reservation import ClimberReservation, ReservationCollection
 from src.models.host.config import HotelConfigResponse
-from src.models.host.config import HotelConfigResponse
 from src.models.host.stat_daily import StatDailyRecord
 
 logger = get_logger(__name__)
@@ -40,61 +39,6 @@ STATUS_MAP = {
 
 class StatDailyToReservationTransformer:
     """Transforms StatDaily data directly into Climber reservation format."""
-
-    @staticmethod
-    def _extract_room_charge_codes(
-        config_response: HotelConfigResponse | dict[str, Any] | None,
-    ) -> set[str]:
-        """Extract charge codes from hotel config where SalesGroup == 'ROOM'.
-
-        Args:
-            config_response: Hotel configuration response (HotelConfigResponse or dict)
-
-        Returns:
-            Set of charge codes with SalesGroup == 'ROOM', or default set if config unavailable
-        """
-        if not config_response:
-            logger.warning(
-                "No config provided, using default charge codes",
-                default_codes=ROOM_CHARGE_CODES,
-            )
-            return set(ROOM_CHARGE_CODES)
-
-        try:
-            # Convert dict to HotelConfigResponse if needed
-            if isinstance(config_response, dict):
-                config_model = HotelConfigResponse(**config_response)
-            else:
-                config_model = config_response
-
-            # Extract charge codes where SalesGroup == "ROOM"
-            room_charge_codes = set()
-            for charge in config_model.charges:
-                if charge.sales_group and charge.sales_group.upper() == "ROOM":
-                    if charge.code:
-                        room_charge_codes.add(charge.code)
-
-            if room_charge_codes:
-                logger.info(
-                    "Extracted room charge codes from config",
-                    charge_codes=sorted(room_charge_codes),
-                    count=len(room_charge_codes),
-                )
-                return room_charge_codes
-            else:
-                logger.warning(
-                    "No ROOM charge codes found in config, using defaults",
-                    default_codes=ROOM_CHARGE_CODES,
-                )
-                return set(ROOM_CHARGE_CODES)
-
-        except Exception as e:
-            logger.error(
-                "Failed to extract room charge codes from config",
-                error=str(e),
-                using_defaults=ROOM_CHARGE_CODES,
-            )
-            return set(ROOM_CHARGE_CODES)
 
     @staticmethod
     def _extract_room_charge_codes(
@@ -274,7 +218,6 @@ class StatDailyToReservationTransformer:
         hotel_code: str,
         hotel_local_time: Optional[datetime] = None,
         room_charge_codes: Optional[set[str]] = None,
-        room_charge_codes: Optional[set[str]] = None,
     ) -> Optional[ClimberReservation]:
         """Transform a group of StatDaily records into a single ClimberReservation.
 
@@ -282,7 +225,6 @@ class StatDailyToReservationTransformer:
             records: List of StatDaily records for same reservation-day
             hotel_code: Hotel code
             hotel_local_time: Hotel local time for record_date calculation
-            room_charge_codes: Set of charge codes to treat as room revenue (from hotel config)
             room_charge_codes: Set of charge codes to treat as room revenue (from hotel config)
 
         Returns:
@@ -372,13 +314,8 @@ class StatDailyToReservationTransformer:
             revenue_net = rev_record.revenue_net or 0.0
 
             if rev_record.charge_code in NOSHOW_CHARGE_CODES:
-            if rev_record.charge_code in NOSHOW_CHARGE_CODES:
                 revenue_room += revenue_net  # NOSHOW revenue goes to room
                 is_noshow = True
-            elif rev_record.charge_code in room_charge_codes:
-                revenue_room += revenue_net
-            else:
-                # Any other revenue that passed the filter above
             elif rev_record.charge_code in room_charge_codes:
                 revenue_room += revenue_net
             else:
@@ -474,16 +411,10 @@ class StatDailyToReservationTransformer:
         hotel_code: str,
         hotel_local_time: Optional[datetime] = None,
         config_response: HotelConfigResponse | dict[str, Any] | None = None,
-        config_response: HotelConfigResponse | dict[str, Any] | None = None,
     ) -> ReservationCollection:
         """Transform batch of StatDaily records into ReservationCollection.
 
         Process flow:
-        1. Extract room charge codes from config (if provided)
-        2. Parse StatDaily records into StatDailyRecord objects
-        3. Group by (ResNo, GlobalResGuestId, ResId, HotelDate)
-        4. Transform each group into ClimberReservation using dynamic charge codes
-        5. Return ReservationCollection
         1. Extract room charge codes from config (if provided)
         2. Parse StatDaily records into StatDailyRecord objects
         3. Group by (ResNo, GlobalResGuestId, ResId, HotelDate)
@@ -495,7 +426,6 @@ class StatDailyToReservationTransformer:
             hotel_code: Hotel code
             hotel_local_time: Hotel local time for record_date calculation
             config_response: Hotel configuration for extracting charge codes
-            config_response: Hotel configuration for extracting charge codes
 
         Returns:
             ReservationCollection with transformed reservations
@@ -506,12 +436,6 @@ class StatDailyToReservationTransformer:
             total_records=len(stat_daily_records),
         )
 
-        # Step 1: Extract room charge codes from config
-        room_charge_codes = StatDailyToReservationTransformer._extract_room_charge_codes(
-            config_response
-        )
-
-        # Step 2: Parse records
         # Step 1: Extract room charge codes from config
         room_charge_codes = StatDailyToReservationTransformer._extract_room_charge_codes(
             config_response
@@ -530,12 +454,10 @@ class StatDailyToReservationTransformer:
             return ReservationCollection(reservations=[])
 
         # Step 3: Group by reservation-day
-        # Step 3: Group by reservation-day
         groups = StatDailyToReservationTransformer._group_stat_daily_by_reservation_day(
             parsed_records
         )
 
-        # Step 4: Transform each group
         # Step 4: Transform each group
         reservations = []
         failed_count = 0
@@ -545,7 +467,6 @@ class StatDailyToReservationTransformer:
                 group_records,
                 hotel_code=hotel_code,
                 hotel_local_time=hotel_local_time,
-                room_charge_codes=room_charge_codes,
                 room_charge_codes=room_charge_codes,
             )
 
