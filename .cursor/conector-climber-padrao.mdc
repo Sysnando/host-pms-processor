@@ -1,0 +1,16 @@
+---
+alwaysApply: false
+---
+
+# Conector Climber
+
+Este projeto é um conector PMS. Siga sempre o documento **CONECTOR_PADRAO_CLIMBER.md** na raiz do repositório.
+
+- Fluxo: código do hotel → download → raw S3 → transformação → reservations/segments S3 → registro ESB → mensagem SQS.
+- Código do hotel: HOTEL_CODE (API) e HOTEL_CODE_S3 (S3/ESB/fila).
+- Raw: resposta bruta da API, sem alterar estrutura; path {HOTEL_CODE_S3}/reservations-{timestamp}.json no bucket raw.
+- Reservas e segmentos: mesmo timestamp; registrar ambos no ESB; depois enviar HOTEL_CODE_S3 na fila SQS.
+- Em dúvida, priorize o que está em CONECTOR_PADRAO_CLIMBER.md.
+```
+
+Assim, em qualquer conversa nesse repositório, o Cursor tende a seguir o fluxo e os contratos descritos no markdown.

@@ -168,17 +168,19 @@ LOG_FORMAT=console|json
 python -m src.main
 ```
 
-The connector will:
-1. Fetch hotel configuration from Climber ESB
-2. For each configured hotel:
-   - Get import parameters (last import date)
-   - Extract data from Host PMS API
-   - Transform to Climber standardized format
-   - Upload raw data to S3
-   - Upload processed data to S3
-   - Register files in Climber ESB
-   - Update last import date
-   - Send SQS trigger message
+**Climber padrão (single hotel, single timestamp):** When `HOTEL_CODE` and `HOTEL_CODE_S3` are set, the connector runs the flow defined in `CONECTOR_PADRAO_CLIMBER.md`:
+
+1. Use `HOTEL_CODE` for PMS API and `HOTEL_CODE_S3` for all S3/ESB/queue paths
+2. Download data (Config + StatDaily date range) from Host PMS
+3. Upload raw payload to `S3_RAW_RESERVATIONS_BUCKET` at `{HOTEL_CODE_S3}/reservations-{timestamp}.json`
+4. Transform using existing transformers (StatDaily → reservations, Config → segments)
+5. Upload reservations to `S3_RESERVATIONS_BUCKET` and segments to `S3_SEGMENTS_BUCKET` (same timestamp)
+6. Register both files in Climber ESB (OAuth via `ESB_BASIC_AUTH` + `ESB_AUTH_URL`)
+7. Send one SQS message with body `HOTEL_CODE_S3` and `MessageGroupId` = `SQS_MESSAGE_GROUP_ID` (or `HOTEL_CODE_S3`)
+
+The same ISO timestamp is used for raw, reservations, and segments. AWS credentials: if `AWS_ACCESS_KEY_ID` and `AWS_SECRET_ACCESS_KEY` are set, they are used; otherwise boto3 uses its default provider (SSO in dev, role in prod). See `.env.example` for all variables.
+
+**Legacy multi-hotel mode:** If `HOTEL_CODE`/`HOTEL_CODE_S3` are not set, the connector fetches the hotel list from ESB and processes each hotel with the existing pipeline (config, inventory, segments, StatDaily, import date, SQS).
 
 ### First-Time Import
 

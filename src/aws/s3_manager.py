@@ -9,6 +9,7 @@ from botocore.exceptions import ClientError
 from pydantic import BaseModel
 from structlog import get_logger
 
+from src.aws.client_factory import get_boto3_client_kwargs
 from src.config import settings
 
 logger = get_logger(__name__)
@@ -24,9 +25,13 @@ class S3Manager:
     """Manages uploads to raw and processed S3 buckets."""
 
     def __init__(self):
-        """Initialize S3 Manager with AWS settings."""
+        """Initialize S3 Manager with AWS settings.
+
+        Uses AWS_ACCESS_KEY_ID/AWS_SECRET_ACCESS_KEY if set; otherwise
+        boto3 default credential provider (SSO, role, etc.).
+        """
         self.region = settings.aws.region
-        self.s3_client = boto3.client("s3", region_name=self.region)
+        self.s3_client = boto3.client("s3", **get_boto3_client_kwargs("s3"))
         self.raw_prefix = settings.aws_s3_raw_prefix
         self.processed_prefix = settings.aws_s3_processed_prefix
         self.timestamp = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
@@ -364,3 +369,167 @@ class S3Manager:
             raise S3UploadError(
                 f"Failed to delete object from S3: {str(e)}"
             ) from e
+
+    # ---- Climber padrão: single timestamp, explicit buckets ----
+
+    def _timestamp_iso_seconds(self, timestamp: str | None = None) -> str:
+        """Format timestamp for S3 key: ISO up to seconds (e.g. 2024-07-04T11:26:32Z)."""
+        if timestamp:
+            if "T" in timestamp and "Z" in timestamp:
+                return timestamp[:19] + "Z" if len(timestamp) > 19 else timestamp
+            return timestamp
+        return datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ")
+
+    def upload_raw_reservations(
+        self,
+        raw_data: Any,
+        timestamp: str,
+        hotel_code_s3: str,
+        bucket: str | None = None,
+    ) -> dict[str, str]:
+        """Upload raw reservation payload to padrão raw bucket.
+
+        Path: {hotel_code_s3}/reservations-{timestamp}.json
+
+        Args:
+            raw_data: Raw API response (dict or list).
+            timestamp: ISO timestamp up to seconds (e.g. 2024-07-04T11:26:32Z).
+            hotel_code_s3: Hotel code for S3 paths.
+            bucket: Override bucket; if None, uses settings.padrao_raw_bucket().
+
+        Returns:
+            Dict with 'key' and 'url'.
+        """
+        ts = self._timestamp_iso_seconds(timestamp)
+        key = f"{hotel_code_s3}/reservations-{ts}.json"
+        bucket_name = bucket or settings.padrao_raw_bucket()
+        if not bucket_name:
+            bucket_name = settings.aws_s3_raw_prefix + "reservations"
+        logger.info(
+            "Uploading raw reservations (padrão)",
+            hotel_code_s3=hotel_code_s3,
+            key=key,
+        )
+        body = self._serialize_data(raw_data)
+        try:
+            self.s3_client.put_object(
+                Bucket=bucket_name,
+                Key=key,
+                Body=body.encode("utf-8"),
+                ContentType="application/json",
+                Metadata={
+                    "hotel-code-s3": hotel_code_s3,
+                    "upload-timestamp": datetime.utcnow().isoformat(),
+                },
+            )
+            url = f"s3://{bucket_name}/{key}"
+            logger.info("Uploaded raw reservations", key=key, url=url)
+            return {"key": key, "url": url}
+        except ClientError as e:
+            logger.error("Failed to upload raw reservations", key=key, error=str(e))
+            raise S3UploadError(f"Upload raw reservations failed: {str(e)}") from e
+
+    def upload_reservations(
+        self,
+        reservations: Any,
+        timestamp: str,
+        hotel_code_s3: str,
+        bucket: str | None = None,
+    ) -> dict[str, str]:
+        """Upload transformed reservations to padrão reservations bucket.
+
+        Path: {hotel_code_s3}/reservations-{timestamp}.json
+
+        Args:
+            reservations: List of reservation dicts or ReservationCollection.
+            timestamp: Same ISO timestamp as raw/segments.
+            hotel_code_s3: Hotel code for S3 paths.
+            bucket: Override bucket; if None, uses settings.padrao_reservations_bucket().
+
+        Returns:
+            Dict with 'key' and 'url'.
+        """
+        ts = self._timestamp_iso_seconds(timestamp)
+        key = f"{hotel_code_s3}/reservations-{ts}.json"
+        bucket_name = bucket or settings.padrao_reservations_bucket()
+        if not bucket_name:
+            bucket_name = settings.aws_s3_processed_prefix + "reservations"
+        if hasattr(reservations, "reservations"):
+            body = json.dumps(
+                [r.model_dump(by_alias=True) for r in reservations.reservations],
+                indent=2,
+                default=str,
+            )
+        else:
+            body = self._serialize_data(reservations)
+        logger.info(
+            "Uploading reservations (padrão)",
+            hotel_code_s3=hotel_code_s3,
+            key=key,
+        )
+        try:
+            self.s3_client.put_object(
+                Bucket=bucket_name,
+                Key=key,
+                Body=body.encode("utf-8"),
+                ContentType="application/json",
+                Metadata={
+                    "hotel-code-s3": hotel_code_s3,
+                    "format": "climber-standardized",
+                },
+            )
+            url = f"s3://{bucket_name}/{key}"
+            logger.info("Uploaded reservations", key=key, url=url)
+            return {"key": key, "url": url}
+        except ClientError as e:
+            logger.error("Failed to upload reservations", key=key, error=str(e))
+            raise S3UploadError(f"Upload reservations failed: {str(e)}") from e
+
+    def upload_segments(
+        self,
+        segments: Any,
+        timestamp: str,
+        hotel_code_s3: str,
+        bucket: str | None = None,
+    ) -> dict[str, str]:
+        """Upload transformed segments to padrão segments bucket.
+
+        Path: {hotel_code_s3}/segments-{timestamp}.json
+
+        Args:
+            segments: SegmentCollection or dict.
+            timestamp: Same ISO timestamp as raw/reservations.
+            hotel_code_s3: Hotel code for S3 paths.
+            bucket: Override bucket; if None, uses settings.padrao_segments_bucket().
+
+        Returns:
+            Dict with 'key' and 'url'.
+        """
+        ts = self._timestamp_iso_seconds(timestamp)
+        key = f"{hotel_code_s3}/segments-{ts}.json"
+        bucket_name = bucket or settings.padrao_segments_bucket()
+        if not bucket_name:
+            bucket_name = settings.aws_s3_processed_prefix + "segments"
+        body = self._serialize_data(segments)
+        logger.info(
+            "Uploading segments (padrão)",
+            hotel_code_s3=hotel_code_s3,
+            key=key,
+        )
+        try:
+            self.s3_client.put_object(
+                Bucket=bucket_name,
+                Key=key,
+                Body=body.encode("utf-8"),
+                ContentType="application/json",
+                Metadata={
+                    "hotel-code-s3": hotel_code_s3,
+                    "format": "climber-standardized",
+                },
+            )
+            url = f"s3://{bucket_name}/{key}"
+            logger.info("Uploaded segments", key=key, url=url)
+            return {"key": key, "url": url}
+        except ClientError as e:
+            logger.error("Failed to upload segments", key=key, error=str(e))
+            raise S3UploadError(f"Upload segments failed: {str(e)}") from e

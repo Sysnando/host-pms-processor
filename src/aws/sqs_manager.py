@@ -9,6 +9,7 @@ from botocore.exceptions import ClientError
 from pydantic import BaseModel
 from structlog import get_logger
 
+from src.aws.client_factory import get_boto3_client_kwargs
 from src.config import settings
 
 logger = get_logger(__name__)
@@ -24,35 +25,59 @@ class SQSManager:
     """Manages FIFO SQS queue operations for PMS processor triggers."""
 
     def __init__(self):
-        """Initialize SQS Manager with AWS settings."""
+        """Initialize SQS Manager with AWS settings.
+
+        Uses AWS_ACCESS_KEY_ID/AWS_SECRET_ACCESS_KEY if set; otherwise
+        boto3 default credential provider (SSO, role, etc.).
+        """
         self.region = settings.aws.region
-        self.sqs_client = boto3.client("sqs", region_name=self.region)
+        self.sqs_client = boto3.client("sqs", **get_boto3_client_kwargs("sqs"))
         self.queue_name = settings.aws.sqs_queue_name
         self._queue_url: Optional[str] = None
 
         logger.info("SQS Manager initialized", queue_name=self.queue_name)
 
+    def _is_placeholder_queue_url(self, url: str) -> bool:
+        """True if URL looks like example/placeholder (not a real queue)."""
+        if not url or not url.strip():
+            return True
+        u = url.strip().lower()
+        return "123456789012" in u or "your_account_id" in u
+
     @property
     def queue_url(self) -> str:
-        """Get queue URL, fetching it if not already cached."""
+        """Get queue URL: use explicit SQS_QUEUE_URL if set and not placeholder, else resolve by queue name."""
         if self._queue_url is None:
-            try:
-                response = self.sqs_client.get_queue_url(QueueName=self.queue_name)
-                self._queue_url = response["QueueUrl"]
-                logger.info(
-                    "Successfully fetched SQS queue URL",
-                    queue_name=self.queue_name,
-                    queue_url=self._queue_url,
-                )
-            except ClientError as e:
-                logger.error(
-                    "Failed to fetch queue URL",
-                    queue_name=self.queue_name,
-                    error=str(e),
-                )
-                raise SQSError(
-                    f"Failed to get SQS queue URL for {self.queue_name}: {str(e)}"
-                ) from e
+            # Climber padrão: explicit URL from env only if set and not placeholder
+            explicit_url = getattr(settings, "sqs_queue_url", "") or getattr(
+                settings.aws, "sqs_queue_url", ""
+            )
+            explicit_url = (
+                explicit_url.strip().split("\n")[0].split("#")[0].strip()
+                if explicit_url
+                else ""
+            )
+            if explicit_url and not self._is_placeholder_queue_url(explicit_url):
+                self._queue_url = explicit_url
+                logger.info("Using SQS queue URL from config", queue_url=self._queue_url)
+            else:
+                try:
+                    response = self.sqs_client.get_queue_url(QueueName=self.queue_name)
+                    self._queue_url = response["QueueUrl"]
+                    logger.info(
+                        "Successfully fetched SQS queue URL",
+                        queue_name=self.queue_name,
+                        queue_url=self._queue_url,
+                    )
+                except ClientError as e:
+                    logger.error(
+                        "Failed to fetch queue URL",
+                        queue_name=self.queue_name,
+                        error=str(e),
+                    )
+                    raise SQSError(
+                        f"Failed to get SQS queue URL for {self.queue_name}: {str(e)}"
+                    ) from e
         return self._queue_url
 
     def _serialize_message(self, data: Any) -> str:
@@ -70,6 +95,56 @@ class SQSManager:
             return json.dumps(data)
         else:
             return json.dumps({"data": str(data)})
+
+    def send_processor_message(
+        self,
+        hotel_code_s3: str,
+        message_group_id: str | None = None,
+        queue_url: str | None = None,
+    ) -> dict[str, str]:
+        """Send Climber padrão processor trigger: body = HOTEL_CODE_S3, FIFO GroupId.
+
+        Args:
+            hotel_code_s3: Message body (hotel code for S3/ESB).
+            message_group_id: MessageGroupId for FIFO (default from settings).
+            queue_url: Override queue URL if provided.
+
+        Returns:
+            Dict with 'message_id'.
+        """
+        url = (queue_url or self.queue_url).strip().split("\n")[0].split("#")[0].strip()
+        group_id = message_group_id or settings.padrao_sqs_message_group_id() or hotel_code_s3
+        if not group_id or group_id.startswith("#") or " " in group_id:
+            group_id = hotel_code_s3
+        logger.info(
+            "Sending processor message (padrão)",
+            hotel_code_s3=hotel_code_s3,
+            message_group_id=group_id,
+        )
+        try:
+            dedup_id = str(uuid.uuid4())
+            response = self.sqs_client.send_message(
+                QueueUrl=url,
+                MessageBody=hotel_code_s3,
+                MessageGroupId=group_id,
+                MessageDeduplicationId=dedup_id,
+            )
+            mid = response["MessageId"]
+            logger.info(
+                "Sent processor message",
+                hotel_code_s3=hotel_code_s3,
+                message_id=mid,
+            )
+            return {"message_id": mid}
+        except ClientError as e:
+            logger.error(
+                "Failed to send processor message",
+                hotel_code_s3=hotel_code_s3,
+                error=str(e),
+            )
+            raise SQSError(
+                f"Failed to send processor message: {str(e)}"
+            ) from e
 
     def send_message(
         self,

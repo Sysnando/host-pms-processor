@@ -7,15 +7,24 @@ from typing import Any
 
 from src.config import configure_logging, get_logger, settings
 from src.services import HostPMSConnectorOrchestrator
+from src.services.climber_padrao_orchestrator import ClimberPadraoOrchestrator
 
 logger = get_logger(__name__)
+
+
+def _use_climber_padrao() -> bool:
+    """True when HOTEL_CODE and HOTEL_CODE_S3 are set (run Climber padrão flow, single hotel from .env)."""
+    code = (settings.hotel_code or settings.hotel.hotel_code or "").strip()
+    code_s3 = (settings.hotel_code_s3 or settings.hotel.hotel_code_s3 or "").strip()
+    return bool(code and code_s3)
 
 
 async def main() -> int:
     """Main async function to run the ETL pipeline.
 
-    Returns:
-        Exit code (0 for success, 1 for failure)
+    When HOTEL_CODE and HOTEL_CODE_S3 are set, runs the Climber padrão flow
+    (single hotel, single timestamp, raw S3 → transform → reservations/segments S3 → ESB → SQS).
+    Otherwise runs the legacy multi-hotel pipeline.
     """
     logger.info(
         "Starting Host PMS Connector",
@@ -23,33 +32,34 @@ async def main() -> int:
     )
 
     try:
-        # Create orchestrator
-        orchestrator = HostPMSConnectorOrchestrator()
-
-        # Process all configured hotels
-        results = await orchestrator.process_all_hotels()
-
-        # Log results
-        logger.info(
-            "ETL pipeline complete",
-            total_hotels=results["total_hotels"],
-            successful_hotels=results["successful_hotels"],
-            failed_hotels=results["failed_hotels"],
-        )
-
-        # Print results to stdout
-        print(json.dumps(results, indent=2, default=str))
-
-        # Return success if at least some hotels were processed
-        if results["successful_hotels"] > 0:
-            return 0
-        elif results["failed_hotels"] == 0:
-            logger.warning("No hotels were processed")
-            return 1
+        if _use_climber_padrao():
+            missing = settings.validate_climber_padrao()
+            if missing:
+                logger.error("Climber padrão config incomplete", missing=missing)
+                print(json.dumps({"success": False, "error": f"Missing: {', '.join(missing)}"}))
+                return 1
+            orchestrator = ClimberPadraoOrchestrator()
+            results = await orchestrator.run()
+            print(json.dumps(results, indent=2, default=str))
+            return 0 if results.get("success") else 1
         else:
-            logger.error("All hotels failed to process")
-            return 1
-
+            orchestrator = HostPMSConnectorOrchestrator()
+            results = await orchestrator.process_all_hotels()
+            logger.info(
+                "ETL pipeline complete",
+                total_hotels=results["total_hotels"],
+                successful_hotels=results["successful_hotels"],
+                failed_hotels=results["failed_hotels"],
+            )
+            print(json.dumps(results, indent=2, default=str))
+            if results["successful_hotels"] > 0:
+                return 0
+            elif results["failed_hotels"] == 0:
+                logger.warning("No hotels were processed")
+                return 1
+            else:
+                logger.error("All hotels failed to process")
+                return 1
     except Exception as e:
         logger.error(
             "Fatal error in main application",
