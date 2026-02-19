@@ -471,6 +471,22 @@ class StatDailyToReservationTransformer:
             )
 
             if reservation:
+                # Skip reservations where all numeric fields are zero
+                if (
+                    reservation.rooms == 0
+                    and reservation.revenue_fb == 0
+                    and reservation.revenue_fb_invoice == 0
+                    and reservation.revenue_others == 0
+                    and reservation.revenue_others_invoice == 0
+                    and reservation.revenue_room == 0
+                    and reservation.revenue_room_invoice == 0
+                ):
+                    logger.debug(
+                        "Skipping reservation with all-zero values",
+                        res_id=reservation.reservation_id,
+                        hotel_date=reservation.calendar_date,
+                    )
+                    continue
                 reservations.append(reservation)
             else:
                 failed_count += 1

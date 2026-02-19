@@ -142,8 +142,8 @@ def fetch_and_transform_local(
             # Save transformed config
             config_transformed_file = hotel_dir / "01_config_transformed.json"
             config_data = {
-                "hotel_config": json.loads(hotel_config.model_dump_json()),
-                "segments": json.loads(segment_collection.model_dump_json())
+                "hotel_config": json.loads(hotel_config.model_dump_json(by_alias=True)),
+                "segments": json.loads(segment_collection.model_dump_json(by_alias=True))
             }
             with open(config_transformed_file, "w") as f:
                 json.dump(config_data, f, indent=2)
