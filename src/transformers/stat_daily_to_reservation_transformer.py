@@ -277,14 +277,14 @@ class StatDailyToReservationTransformer:
             record_date_str = datetime.now().date().isoformat()
         record_date = f"[{record_date_str},)"
 
-        # Build reservation_id_external (composite key)
+        # Build reservation_id_external (no separators - stored as Long in DB)
         if base_record.master_detail > 0:
             reservation_id_external = (
-                f"{base_record.res_no}-{base_record.global_res_guest_id}-{base_record.master_detail}"
+                f"{base_record.res_no}{base_record.global_res_guest_id}{base_record.master_detail}"
             )
         else:
             reservation_id_external = (
-                f"{base_record.res_no}-{base_record.global_res_guest_id}"
+                f"{base_record.res_no}{base_record.global_res_guest_id}"
             )
 
         # Get occupancy data from occupancy records (HISTORY-OCCUPANCY or FORECAST-OCCUPANCY)

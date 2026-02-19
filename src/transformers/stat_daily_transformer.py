@@ -127,13 +127,15 @@ class StatDailyTransformer:
     @staticmethod
     def aggregate_revenue_by_key(
         consolidated_records: list[dict[str, Any]],
-    ) -> tuple[dict[tuple[str, int, int, int], float], dict[tuple[str, int], float]]:
+    ) -> tuple[dict[tuple[str, str, int], float], dict[tuple[str, int], float]]:
         """Aggregate RevenueNet with separate handling for NOSHOW charges.
 
-        For NOSHOW charges, the guest is removed so we only use ResId for matching.
-        We need two separate aggregation maps:
-        1. Regular charges (ALOJ, OB): Key by (HotelDate, ResNo, GlobalResGuestId, ResId)
-        2. NOSHOW charges: Key by (HotelDate, ResId) - only ResId
+        Regular charges (ALOJ, OB) are keyed by (HotelDate, reservation_id_external, ResId),
+        where reservation_id_external is built the same way as in the transformers
+        (ResNo + GlobalResGuestId concatenated, no separators).
+
+        NOSHOW charges use only (HotelDate, ResId) since the guest record is removed
+        and GlobalResGuestId is not reliable for matching.
 
         Args:
             consolidated_records: Consolidated records from consolidate_stat_daily_records()
@@ -141,7 +143,7 @@ class StatDailyTransformer:
         Returns:
             Tuple of (regular_revenue_map, noshow_revenue_map)
         """
-        regular_revenue_map: dict[tuple[str, int, int, int], float] = {}
+        regular_revenue_map: dict[tuple[str, str, int], float] = {}
         noshow_revenue_map: dict[tuple[str, int], float] = {}
 
         for record in consolidated_records:
@@ -159,17 +161,19 @@ class StatDailyTransformer:
             revenue_net = record["revenue_net"]
 
             if charge_code == "NOSHOW":
-                # NOSHOW: Only use ResId (guest is removed)
-                key = (hotel_date_str, res_id)
-                if key not in noshow_revenue_map:
-                    noshow_revenue_map[key] = 0.0
-                noshow_revenue_map[key] += revenue_net
+                # NOSHOW: guest record is removed, match only by ResId
+                noshow_key = (hotel_date_str, res_id)
+                if noshow_key not in noshow_revenue_map:
+                    noshow_revenue_map[noshow_key] = 0.0
+                noshow_revenue_map[noshow_key] += revenue_net
             else:
-                # Regular charges (ALOJ, OB): Use full key including GlobalResGuestId
-                key = (hotel_date_str, res_no, global_res_guest_id, res_id)
-                if key not in regular_revenue_map:
-                    regular_revenue_map[key] = 0.0
-                regular_revenue_map[key] += revenue_net
+                # Regular charges (ALOJ, OB): match by reservation_id_external + ResId
+                # reservation_id_external is ResNo+GlobalResGuestId concatenated (no separators)
+                reservation_id_external = f"{res_no}{global_res_guest_id}"
+                regular_key = (hotel_date_str, reservation_id_external, res_id)
+                if regular_key not in regular_revenue_map:
+                    regular_revenue_map[regular_key] = 0.0
+                regular_revenue_map[regular_key] += revenue_net
 
         logger.info(
             "Aggregated StatDaily revenue",
@@ -192,7 +196,7 @@ class StatDailyTransformer:
         Returns:
             Tuple of (reservation_id_external, reservation_id_int)
         """
-        # reservation_id_external is the composite key (ResNo-GlobalResGuestId[-MasterDetail])
+        # reservation_id_external is the composite key (no separators, stored as Long in DB)
         # reservation_id is the ResId as string
         try:
             res_id = int(reservation.reservation_id)
@@ -211,7 +215,7 @@ class StatDailyTransformer:
     ) -> str:
         """Build lookup key from StatDaily record.
 
-        Format: "ResNo-GlobalResGuestId" or "ResNo-GlobalResGuestId-MasterDetail"
+        Format: "ResNoGlobalResGuestId" or "ResNoGlobalResGuestIdMasterDetail" (no separators - stored as Long in DB)
 
         Args:
             record: StatDailyRecord object
@@ -220,25 +224,25 @@ class StatDailyTransformer:
             String key matching reservation_id_external format
         """
         if record.master_detail > 0:
-            return f"{record.res_no}-{record.global_res_guest_id}-{record.master_detail}"
-        return f"{record.res_no}-{record.global_res_guest_id}"
+            return f"{record.res_no}{record.global_res_guest_id}{record.master_detail}"
+        return f"{record.res_no}{record.global_res_guest_id}"
 
     @staticmethod
     def update_reservation_invoices(
         reservation_collection: ReservationCollection,
-        regular_revenue_map: dict[tuple[str, int, int, int], float],
+        regular_revenue_map: dict[tuple[str, str, int], float],
         noshow_revenue_map: dict[tuple[str, int], float],
     ) -> tuple[ReservationCollection, int, list[dict[str, Any]]]:
         """Update revenue_room_invoice in reservations based on StatDaily data.
 
         Matches reservations with StatDaily data using:
-        - Regular charges (ALOJ, OB): Match by (calendar_date, res_no, global_res_guest_id, res_id)
-        - NOSHOW charges: Match by (calendar_date, res_id) only - just ResId
+        - Regular charges (ALOJ, OB): Match by (calendar_date, reservation_id_external, res_id)
+        - NOSHOW charges: Match by (calendar_date, res_id) only
 
         Args:
             reservation_collection: Collection of ClimberReservation objects
-            regular_revenue_map: Revenue for ALOJ/OB charges (with GlobalResGuestId)
-            noshow_revenue_map: Revenue for NOSHOW charges (only ResId)
+            regular_revenue_map: Revenue for ALOJ/OB charges keyed by (calendar_date, reservation_id_external, res_id)
+            noshow_revenue_map: Revenue for NOSHOW charges keyed by (calendar_date, res_id)
 
         Returns:
             Tuple of (updated_collection, update_count, match_details)
@@ -247,7 +251,6 @@ class StatDailyTransformer:
         match_details = []
 
         for reservation in reservation_collection.reservations:
-            # Build lookup keys from reservation
             calendar_date = reservation.calendar_date
             reservation_id_external = reservation.reservation_id_external
 
@@ -256,37 +259,17 @@ class StatDailyTransformer:
             except ValueError:
                 res_id = 0
 
-            # Parse reservation_id_external to extract ResNo and GlobalResGuestId
-            # Format: "ResNo-GlobalResGuestId" or "ResNo-GlobalResGuestId-MasterDetail"
-            parts = reservation_id_external.split("-")
-            if len(parts) >= 2:
-                try:
-                    res_no = int(parts[0])
-                    global_res_guest_id = int(parts[1])
-                except ValueError:
-                    logger.warning(
-                        "Failed to parse reservation_id_external",
-                        reservation_id_external=reservation_id_external,
-                    )
-                    continue
-            else:
-                logger.warning(
-                    "Invalid reservation_id_external format",
-                    reservation_id_external=reservation_id_external,
-                )
-                continue
-
             matched_revenue = None
             match_type = None
 
-            # Try regular match first (ALOJ, OB) - with GlobalResGuestId
-            regular_key = (calendar_date, res_no, global_res_guest_id, res_id)
+            # Try regular match first (ALOJ, OB)
+            regular_key = (calendar_date, reservation_id_external, res_id)
             matched_revenue = regular_revenue_map.get(regular_key)
 
             if matched_revenue is not None:
                 match_type = "regular"
             else:
-                # Try NOSHOW match - only ResId
+                # Try NOSHOW match - only by (calendar_date, res_id)
                 noshow_key = (calendar_date, res_id)
                 matched_revenue = noshow_revenue_map.get(noshow_key)
                 if matched_revenue is not None:
@@ -302,8 +285,6 @@ class StatDailyTransformer:
                     "calendar_date": calendar_date,
                     "reservation_id": reservation.reservation_id,
                     "reservation_id_external": reservation_id_external,
-                    "res_no": res_no,
-                    "global_res_guest_id": global_res_guest_id,
                     "old_revenue_room_invoice": old_value,
                     "new_revenue_room_invoice": matched_revenue,
                     "match_type": match_type,
