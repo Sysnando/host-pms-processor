@@ -565,8 +565,47 @@ def fetch_and_transform_local(
                     inventory_response = json.load(f)
                 logger.info("Raw inventory loaded", hotel_code=hotel_code, file_path=str(inventory_raw_file))
         else:
-            # Fetch from API
-            inventory_response = client.get_inventory(hotel_code)
+            # Extract rate codes from config (ConfigType=RATECODE) — one request per rate code per window
+            rate_codes = []
+            if config_response:
+                try:
+                    from src.models.host.config import HotelConfigResponse
+                    cfg = HotelConfigResponse(**config_response) if isinstance(config_response, dict) else config_response
+                    rate_codes = [item.code for item in cfg.get_config_by_type("RATECODE")]
+                    print(f"   Found {len(rate_codes)} rate codes: {rate_codes}")
+                except Exception as e:
+                    logger.warning("Could not extract rate codes from config", hotel_code=hotel_code, error=str(e))
+
+            # Single 30-day window from today
+            from datetime import date
+            inv_start = date.today()
+            inv_end = inv_start + timedelta(days=29)
+            w_from = inv_start.isoformat()
+            w_to = inv_end.isoformat()
+
+            print(f"   Inventory window: {w_from} to {w_to}")
+
+            all_inventory = []
+            if rate_codes:
+                # One request per rate code for the 30-day window
+                for rc in rate_codes:
+                    try:
+                        resp = client.get_inventory(from_date=w_from, to_date=w_to, rate_code=rc, hotel_code=hotel_code)
+                        items = resp if isinstance(resp, list) else resp.get("InventoryGrid", resp.get("inventory", [resp] if resp else []))
+                        all_inventory.extend(items if isinstance(items, list) else [resp])
+                    except Exception as e:
+                        print(f"   rate_code={rc}: failed ({e})")
+            else:
+                # No rate codes — single request for the 30-day window
+                try:
+                    resp = client.get_inventory(from_date=w_from, to_date=w_to, hotel_code=hotel_code)
+                    items = resp if isinstance(resp, list) else resp.get("InventoryGrid", resp.get("inventory", [resp] if resp else []))
+                    all_inventory.extend(items if isinstance(items, list) else [resp])
+                except Exception as e:
+                    print(f"   window={w_from}/{w_to}: failed ({e})")
+
+            print(f"   Total inventory records fetched: {len(all_inventory)}")
+            inventory_response = all_inventory
 
             # Save raw inventory response
             inventory_raw_file = hotel_dir / "02_inventory_raw.json"
