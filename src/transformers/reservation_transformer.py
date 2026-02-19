@@ -189,9 +189,9 @@ class ReservationTransformer:
         Revenues are calculated from the Prices array grouped by date.
         Does NOT use CheckIn/CheckOut dates for calculation.
 
-        reservation_id_external format:
-        - If MasterDetail > 0: "{ResNo}-{GlobalResGuestId}-{MasterDetail}"
-        - If MasterDetail == 0: "{ResNo}-{GlobalResGuestId}"
+        reservation_id_external format (no separators, stored as Long in DB):
+        - If MasterDetail > 0: "{ResNo}{GlobalResGuestId}{MasterDetail}"
+        - If MasterDetail == 0: "{ResNo}{GlobalResGuestId}"
 
         Args:
             reservation: Reservation from Host PMS API
@@ -268,12 +268,12 @@ class ReservationTransformer:
             reservation.sub_segment_description or "UNASSIGNED"
         )
 
-        # Use ResNo-GlobalResGuestId as reservation_id_external
+        # Use ResNoGlobalResGuestId as reservation_id_external (no separators - stored as Long in DB)
         # If MasterDetail > 0, include it to differentiate multi-detail reservations
         if reservation.master_detail > 0:
-            reservation_id_external = f"{reservation.res_no}-{reservation.global_res_guest_id}-{reservation.master_detail}"
+            reservation_id_external = f"{reservation.res_no}{reservation.global_res_guest_id}{reservation.master_detail}"
         else:
-            reservation_id_external = f"{reservation.res_no}-{reservation.global_res_guest_id}"
+            reservation_id_external = f"{reservation.res_no}{reservation.global_res_guest_id}"
 
         # Get checkout date for comparison
         checkout_date_str = ReservationTransformer._get_date_string(reservation.check_out)
@@ -321,7 +321,7 @@ class ReservationTransformer:
                 # Guest and room info
                 pax=reservation.pax,
                 reservation_id=str(reservation.res_id),
-                reservation_id_external=reservation_id_external,  # ResNo-GlobalResGuestId
+                reservation_id_external=reservation_id_external,  # ResNoGlobalResGuestId (no separators)
                 # Revenue fields
                 revenue_fb=fb_revenue,
                 revenue_fb_invoice=fb_revenue,
@@ -419,9 +419,9 @@ class ReservationTransformer:
         - For overlapping dates in child records: creates zero-revenue records with DetailId appended to reservation_external_id
         - For non-overlapping dates: processes normally
 
-        reservation_id_external format:
-        - Normal records: "{ResNo}-{GlobalResGuestId}" or "{ResNo}-{GlobalResGuestId}-{MasterDetail}"
-        - Zero-revenue overlap records: "{ResNo}-{GlobalResGuestId}-{DetailId}"
+        reservation_id_external format (no separators, stored as Long in DB):
+        - Normal records: "{ResNo}{GlobalResGuestId}" or "{ResNo}{GlobalResGuestId}{MasterDetail}"
+        - Zero-revenue overlap records: "{ResNo}{GlobalResGuestId}{DetailId}"
 
         Skips duplicates with same (reservation_id_external, calendar_date), keeping first occurrence only.
         NOTE: Revenue consolidation is DISABLED - duplicates are skipped to avoid creating extra revenue.
@@ -625,8 +625,8 @@ class ReservationTransformer:
                                 climber_reservation.revenue_others_invoice = 0.0
                                 climber_reservation.rooms = 0
 
-                                # Use format: ResNo-GlobalResGuestId-DetailId for overlap records
-                                overlap_reservation_id = f"{res_no}-{global_res_guest_id}-{detail_id}"
+                                # Use format: ResNoGlobalResGuestIdDetailId for overlap records (no separators - stored as Long in DB)
+                                overlap_reservation_id = f"{res_no}{global_res_guest_id}{detail_id}"
                                 climber_reservation.reservation_id_external = overlap_reservation_id
 
                                 # Track this overlap record
