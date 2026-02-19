@@ -80,8 +80,6 @@ class SegmentTransformer:
                 segment_item = SegmentItem(
                     code=segment.code,
                     name=segment.name,
-                    description=segment.description,
-                    type=segment.type,
                 )
 
                 # Get category and add to appropriate list

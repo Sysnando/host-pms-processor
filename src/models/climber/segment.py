@@ -1,7 +1,5 @@
 """Pydantic models for Climber standardized segment format."""
 
-from typing import Optional
-
 from pydantic import BaseModel, Field
 
 
@@ -24,9 +22,6 @@ class SegmentItem(BaseModel):
         default=9999,
         description="Sorting order position, 9999 is default",
     )
-    description: Optional[str] = Field(None, description="Additional description")
-    type: Optional[str] = Field(None, description="Segment type for internal tracking")
-
     class Config:
         extra = "allow"
         populate_by_name = True

@@ -36,8 +36,6 @@ class ConfigTransformer:
             enabled_otb=enabled,
             enabled_revenue=enabled,
             position=9999,  # Default position
-            description=item.description,
-            type=item.config_type,
         )
 
     @staticmethod
@@ -277,8 +275,6 @@ class ConfigTransformer:
                 charge_item = SegmentItem(
                     code=item.code,
                     name=item.description,
-                    description=f"SalesGroup: {item.sales_group}",
-                    type="CHARGE",
                 )
                 charges.append(charge_item)
             except Exception as e:
