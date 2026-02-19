@@ -127,11 +127,15 @@ class StatDailyTransformer:
     @staticmethod
     def aggregate_revenue_by_key(
         consolidated_records: list[dict[str, Any]],
-    ) -> tuple[dict[tuple[str, int], float], dict[tuple[str, int], float]]:
-        """Aggregate RevenueNet by (HotelDate, ResId) for both regular and NOSHOW charges.
+    ) -> tuple[dict[tuple[str, str, int], float], dict[tuple[str, int], float]]:
+        """Aggregate RevenueNet with separate handling for NOSHOW charges.
 
-        Both maps use the same key structure (HotelDate, ResId) since reservation_id_external
-        no longer encodes ResNo/GlobalResGuestId (stored as Long in DB, no separators).
+        Regular charges (ALOJ, OB) are keyed by (HotelDate, reservation_id_external, ResId),
+        where reservation_id_external is built the same way as in the transformers
+        (ResNo + GlobalResGuestId concatenated, no separators).
+
+        NOSHOW charges use only (HotelDate, ResId) since the guest record is removed
+        and GlobalResGuestId is not reliable for matching.
 
         Args:
             consolidated_records: Consolidated records from consolidate_stat_daily_records()
@@ -139,7 +143,7 @@ class StatDailyTransformer:
         Returns:
             Tuple of (regular_revenue_map, noshow_revenue_map)
         """
-        regular_revenue_map: dict[tuple[str, int], float] = {}
+        regular_revenue_map: dict[tuple[str, str, int], float] = {}
         noshow_revenue_map: dict[tuple[str, int], float] = {}
 
         for record in consolidated_records:
@@ -151,20 +155,25 @@ class StatDailyTransformer:
                 hotel_date_str = hotel_date.date().isoformat()
 
             charge_code = record["charge_code"]
+            res_no = record["res_no"]
             res_id = record["res_id"]
+            global_res_guest_id = record["global_res_guest_id"]
             revenue_net = record["revenue_net"]
 
-            key = (hotel_date_str, res_id)
-
             if charge_code == "NOSHOW":
-                if key not in noshow_revenue_map:
-                    noshow_revenue_map[key] = 0.0
-                noshow_revenue_map[key] += revenue_net
+                # NOSHOW: guest record is removed, match only by ResId
+                noshow_key = (hotel_date_str, res_id)
+                if noshow_key not in noshow_revenue_map:
+                    noshow_revenue_map[noshow_key] = 0.0
+                noshow_revenue_map[noshow_key] += revenue_net
             else:
-                # Regular charges (ALOJ, OB)
-                if key not in regular_revenue_map:
-                    regular_revenue_map[key] = 0.0
-                regular_revenue_map[key] += revenue_net
+                # Regular charges (ALOJ, OB): match by reservation_id_external + ResId
+                # reservation_id_external is ResNo+GlobalResGuestId concatenated (no separators)
+                reservation_id_external = f"{res_no}{global_res_guest_id}"
+                regular_key = (hotel_date_str, reservation_id_external, res_id)
+                if regular_key not in regular_revenue_map:
+                    regular_revenue_map[regular_key] = 0.0
+                regular_revenue_map[regular_key] += revenue_net
 
         logger.info(
             "Aggregated StatDaily revenue",
@@ -221,18 +230,18 @@ class StatDailyTransformer:
     @staticmethod
     def update_reservation_invoices(
         reservation_collection: ReservationCollection,
-        regular_revenue_map: dict[tuple[str, int], float],
+        regular_revenue_map: dict[tuple[str, str, int], float],
         noshow_revenue_map: dict[tuple[str, int], float],
     ) -> tuple[ReservationCollection, int, list[dict[str, Any]]]:
         """Update revenue_room_invoice in reservations based on StatDaily data.
 
-        Matches reservations with StatDaily data using (calendar_date, res_id):
-        - Regular charges (ALOJ, OB): Match by (calendar_date, res_id)
-        - NOSHOW charges: Match by (calendar_date, res_id)
+        Matches reservations with StatDaily data using:
+        - Regular charges (ALOJ, OB): Match by (calendar_date, reservation_id_external, res_id)
+        - NOSHOW charges: Match by (calendar_date, res_id) only
 
         Args:
             reservation_collection: Collection of ClimberReservation objects
-            regular_revenue_map: Revenue for ALOJ/OB charges keyed by (calendar_date, res_id)
+            regular_revenue_map: Revenue for ALOJ/OB charges keyed by (calendar_date, reservation_id_external, res_id)
             noshow_revenue_map: Revenue for NOSHOW charges keyed by (calendar_date, res_id)
 
         Returns:
@@ -254,14 +263,15 @@ class StatDailyTransformer:
             match_type = None
 
             # Try regular match first (ALOJ, OB)
-            lookup_key = (calendar_date, res_id)
-            matched_revenue = regular_revenue_map.get(lookup_key)
+            regular_key = (calendar_date, reservation_id_external, res_id)
+            matched_revenue = regular_revenue_map.get(regular_key)
 
             if matched_revenue is not None:
                 match_type = "regular"
             else:
-                # Try NOSHOW match
-                matched_revenue = noshow_revenue_map.get(lookup_key)
+                # Try NOSHOW match - only by (calendar_date, res_id)
+                noshow_key = (calendar_date, res_id)
+                matched_revenue = noshow_revenue_map.get(noshow_key)
                 if matched_revenue is not None:
                     match_type = "noshow"
 
