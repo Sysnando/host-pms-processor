@@ -277,7 +277,19 @@ class StatDailyToReservationTransformer:
             record_date_str = datetime.now().date().isoformat()
         record_date = f"[{record_date_str},)"
 
+        # Build reservation_id (no separators - stored as Long in DB)
+        # Format: ResId + GlobalResGuestId + MasterDetail (if > 0)
+        if base_record.master_detail > 0:
+            reservation_id = (
+                f"{base_record.res_id}{base_record.global_res_guest_id}{base_record.master_detail}"
+            )
+        else:
+            reservation_id = (
+                f"{base_record.res_id}{base_record.global_res_guest_id}"
+            )
+
         # Build reservation_id_external (no separators - stored as Long in DB)
+        # Format: ResNo + GlobalResGuestId + MasterDetail (if > 0)
         if base_record.master_detail > 0:
             reservation_id_external = (
                 f"{base_record.res_no}{base_record.global_res_guest_id}{base_record.master_detail}"
@@ -371,7 +383,7 @@ class StatDailyToReservationTransformer:
                 calendar_date_end=check_out,
                 created_date=created_date,
                 pax=pax,
-                reservation_id=str(base_record.res_id),
+                reservation_id=reservation_id,
                 reservation_id_external=reservation_id_external,
                 revenue_fb=0.0,  # Not extracting from StatDaily
                 revenue_fb_invoice=0.0,
