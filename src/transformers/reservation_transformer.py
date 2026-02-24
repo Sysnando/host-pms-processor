@@ -112,13 +112,13 @@ class ReservationTransformer:
         for price_item in reservation.prices:
             if price_item.sales_group == 0:
                 # Room revenue: 6% IVA
-                room_revenue += price_item.amount / 1.06
+                room_revenue += price_item.amount
             elif price_item.sales_group == 1:
                 # F&B revenue: 13% IVA
-                fb_revenue += price_item.amount / 1.13
+                fb_revenue += price_item.amount
             else:
                 # Other revenue: 23% IVA
-                other_revenue += price_item.amount / 1.23
+                other_revenue += price_item.amount
 
         return room_revenue, fb_revenue, other_revenue
 
@@ -166,13 +166,13 @@ class ReservationTransformer:
             if price_date_str == target_date_str:
                 if price_item.sales_group == 0:
                     # Room revenue: 6% IVA
-                    room_revenue += price_item.amount / 1.06
+                    room_revenue += price_item.amount
                 elif price_item.sales_group == 1:
                     # F&B revenue: 13% IVA
-                    fb_revenue += price_item.amount / 1.13
+                    fb_revenue += price_item.amount
                 else:
                     # Other revenue: 23% IVA
-                    other_revenue += price_item.amount / 1.23
+                    other_revenue += price_item.amount
 
         return room_revenue, fb_revenue, other_revenue
 
@@ -290,13 +290,13 @@ class ReservationTransformer:
             for price_item in price_items:
                 if price_item.sales_group == 0:
                     # Room revenue: 6% IVA
-                    room_revenue += price_item.amount / 1.06
+                    room_revenue += price_item.amount
                 elif price_item.sales_group == 1:
                     # F&B revenue: 13% IVA
-                    fb_revenue += price_item.amount / 1.13
+                    fb_revenue += price_item.amount
                 else:
                     # Other revenue: 23% IVA
-                    other_revenue += price_item.amount / 1.23
+                    other_revenue += price_item.amount
 
             # Set rooms to 0 in the following cases:
             # 1. Price date >= checkout (post-checkout charges)
