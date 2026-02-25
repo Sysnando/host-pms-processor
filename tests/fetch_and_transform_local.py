@@ -38,6 +38,7 @@ load_dotenv()
 
 from structlog import get_logger
 from src.config.logging import configure_logging
+from src.config import settings
 from src.clients.host_api_client import HostPMSAPIClient
 from src.transformers.config_transformer import ConfigTransformer
 from tests.db.sql_generator import generate_sql_from_reservations
@@ -407,26 +408,29 @@ def fetch_and_transform_local(
     # ==================== STAT DAILY (INVOICE DATA) ====================
     logger.info("Loading StatDaily data", hotel_code=hotel_code)
     try:
-        # Calculate date range from arguments or use defaults
+        # Calculate date range from arguments or use settings defaults
         today = datetime.now().date()
 
         if stat_daily_start_date:
             # Parse custom start date from argument (YYYY-MM-DD format)
             start_date = datetime.strptime(stat_daily_start_date, "%Y-%m-%d").date()
         else:
-            # Default: 95 days ago
-            start_date = today - timedelta(days=95)
+            # Use settings for default (stat_daily_days_back_start)
+            start_date = today - timedelta(days=settings.host_pms.stat_daily_days_back_start)
 
         if stat_daily_end_date:
             # Parse custom end date from argument (YYYY-MM-DD format)
             end_date = datetime.strptime(stat_daily_end_date, "%Y-%m-%d").date()
         else:
-            # Default: 30 days ago
-            end_date = today - timedelta(days=30)
+            # Use settings for default (stat_daily_days_back_end)
+            # Negative value means future dates (e.g., -365 = 365 days in the future)
+            end_date = today - timedelta(days=settings.host_pms.stat_daily_days_back_end)
 
         print(f"   📅 Date range: {start_date} to {end_date}")
         if stat_daily_start_date or stat_daily_end_date:
             print(f"   ℹ️  Using custom date range from command-line arguments")
+        else:
+            print(f"   ℹ️  Using default date range from settings (days_back_start={settings.host_pms.stat_daily_days_back_start}, days_back_end={settings.host_pms.stat_daily_days_back_end})")
 
         # Fetch StatDaily for each date in range
         all_stat_daily_records = []
