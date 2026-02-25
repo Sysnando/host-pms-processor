@@ -11,6 +11,7 @@ from src.services.pipeline import Pipeline, PipelineContext
 from src.services.pipeline.steps import (
     FetchParametersStep,
     ProcessConfigStep,
+    ProcessInventoryGridStep,
     ProcessInventoryStep,
     ProcessSegmentsStep,
     ProcessStatDailyStep,
@@ -49,20 +50,29 @@ class HostPMSConnectorOrchestrator:
         """
         steps = [
             # Step 1: Fetch import parameters (required)
+            # Fetches lastImportDate, minImportDate, maxImportDate from ESB
+            # Calculates date ranges for all subsequent steps
             FetchParametersStep(self.esb_client),
             # Step 2: Process hotel config (optional)
             ProcessConfigStep(self.host_api_client, self.esb_client, self.s3_manager),
-            # Step 3: Process room inventory (optional)
+            # Step 3: Process room inventory from config (optional, deprecated)
+            # This extracts static inventory from hotel config
             ProcessInventoryStep(self.esb_client, self.s3_manager),
-            # Step 4: Process segments (optional)
+            # Step 4: Process inventory grid from API (optional, recommended)
+            # TODO: Enable this step once inventory grid API is ready
+            # This fetches dynamic rate-based inventory from InventoryGrid API
+            # Uses calculated date ranges from FetchParametersStep
+            # ProcessInventoryGridStep(self.host_api_client, self.esb_client, self.s3_manager),
+            # Step 5: Process segments (optional)
             ProcessSegmentsStep(self.esb_client, self.s3_manager),
-            # Step 5: Process StatDaily and convert to reservations (optional)
+            # Step 6: Process StatDaily and convert to reservations (optional)
             # This step replaces the old ProcessReservationsStep
             # StatDaily is the primary source for reservation data
+            # Uses calculated date ranges from FetchParametersStep
             ProcessStatDailyStep(self.host_api_client, self.esb_client, self.s3_manager),
-            # Step 6: Update last import date (optional)
+            # Step 7: Update last import date (optional)
             UpdateImportDateStep(self.esb_client),
-            # Step 7: Send SQS notifications (optional)
+            # Step 8: Send SQS notifications (optional)
             SendNotificationsStep(self.sqs_manager),
         ]
 

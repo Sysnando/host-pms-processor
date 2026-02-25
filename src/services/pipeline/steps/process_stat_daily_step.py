@@ -52,21 +52,35 @@ class ProcessStatDailyStep(PipelineStep):
             True if successful, False otherwise
         """
         try:
-            # Calculate date range from configuration
-            # Uses HOST_API_STAT_DAILY_DAYS_BACK_START and HOST_API_STAT_DAILY_DAYS_BACK_END
-            # environment variables or defaults (95 days and 30 days)
-            today = datetime.utcnow().date()
-            start_date = today - timedelta(days=settings.host_pms.stat_daily_days_back_start)
-            end_date = today - timedelta(days=settings.host_pms.stat_daily_days_back_end)
+            # Use calculated date range from ESB parameters if available
+            # Otherwise fall back to configuration-based calculation
+            if context.calculated_stat_daily_start and context.calculated_stat_daily_end:
+                start_date = datetime.fromisoformat(context.calculated_stat_daily_start).date()
+                end_date = datetime.fromisoformat(context.calculated_stat_daily_end).date()
 
-            self.logger.info(
-                "Fetching StatDaily date range",
-                hotel_code=context.hotel_code,
-                start_date=start_date.isoformat(),
-                end_date=end_date.isoformat(),
-                days_back_start=settings.host_pms.stat_daily_days_back_start,
-                days_back_end=settings.host_pms.stat_daily_days_back_end,
-            )
+                self.logger.info(
+                    "Using ESB-calculated StatDaily date range",
+                    hotel_code=context.hotel_code,
+                    start_date=start_date.isoformat(),
+                    end_date=end_date.isoformat(),
+                    is_first_import=(context.last_import_date is None),
+                )
+            else:
+                # Fallback: Calculate date range from configuration
+                # Uses HOST_API_STAT_DAILY_DAYS_BACK_START and HOST_API_STAT_DAILY_DAYS_BACK_END
+                # environment variables or defaults (95 days and 30 days)
+                today = datetime.utcnow().date()
+                start_date = today - timedelta(days=settings.host_pms.stat_daily_days_back_start)
+                end_date = today - timedelta(days=settings.host_pms.stat_daily_days_back_end)
+
+                self.logger.info(
+                    "Using config-based StatDaily date range (fallback)",
+                    hotel_code=context.hotel_code,
+                    start_date=start_date.isoformat(),
+                    end_date=end_date.isoformat(),
+                    days_back_start=settings.host_pms.stat_daily_days_back_start,
+                    days_back_end=settings.host_pms.stat_daily_days_back_end,
+                )
 
             # Fetch StatDaily for each date in range
             all_stat_daily_records = []

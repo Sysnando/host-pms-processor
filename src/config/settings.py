@@ -65,8 +65,8 @@ class HostPMSSettings(BaseSettings):
     max_retries: int = 3
 
     # StatDaily date range configuration
-    stat_daily_days_back_start: int = 95  # Days back from today for start date (default: 95 days ago)
-    stat_daily_days_back_end: int = 30     # Days back from today for end date (default: 0 = today)
+    stat_daily_days_back_start: int = 7  # Days back from today for start date (default: 95 days ago)
+    stat_daily_days_back_end: int = -365     # Days back from today for end date (default: 0 = today)
 
     model_config = SettingsConfigDict(env_prefix="HOST_API_")
 

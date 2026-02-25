@@ -20,8 +20,17 @@ class PipelineContext:
         self.hotel_code = hotel_code
         self.start_time = datetime.utcnow()
 
-        # Input parameters
+        # Input parameters from ESB
         self.last_import_date: str | None = None
+        self.min_import_date: str | None = None
+        self.max_import_date: str | None = None
+
+        # Calculated date ranges (based on ESB parameters)
+        self.calculated_reservation_from_date: str | None = None
+        self.calculated_stat_daily_start: str | None = None
+        self.calculated_stat_daily_end: str | None = None
+        self.calculated_inventory_from: str | None = None
+        self.calculated_inventory_to: str | None = None
 
         # Raw API responses
         self.config_response: dict[str, Any] | None = None
