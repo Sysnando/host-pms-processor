@@ -66,7 +66,7 @@ class HostPMSSettings(BaseSettings):
 
     # StatDaily date range configuration
     stat_daily_days_back_start: int = 95  # Days back from today for start date (default: 95 days ago)
-    stat_daily_days_back_end: int = 30    # Days back from today for end date (default: 30 days ago)
+    stat_daily_days_back_end: int = 0     # Days back from today for end date (default: 0 = today)
 
     model_config = SettingsConfigDict(env_prefix="HOST_API_")
 
