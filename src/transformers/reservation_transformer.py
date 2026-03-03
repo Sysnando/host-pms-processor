@@ -239,17 +239,8 @@ class ReservationTransformer:
         calendar_date_start = all_dates[0]
         calendar_date_end = all_dates[-1]
 
-        # Determine record_date start
-        record_date_start = calendar_date_start
-        if hotel_local_time is not None:
-            hotel_time_date = ReservationTransformer._get_date_string(hotel_local_time)
-            if calendar_date_end < hotel_time_date:
-                record_date_start = calendar_date_end
-            else:
-                record_date_start = hotel_time_date
-
-        # Record date is an open-ended date range
-        record_date = f"[{record_date_start},)"
+        # Get execution date (hotel local time or current time)
+        execution_date = ReservationTransformer._get_date_string(hotel_local_time) if hotel_local_time is not None else datetime.now().date().isoformat()
 
         # Get status code as integer (0-5) using the config mapping
         status = ReservationTransformer._get_status_code(reservation.res_status, reservation_status_map, hotel_code)
@@ -297,6 +288,15 @@ class ReservationTransformer:
                 else:
                     # Other revenue: 23% IVA
                     other_revenue += price_item.amount
+
+            # Determine record_date for this specific calendar_date
+            # If calendar_date < execution_date (past date): use calendar_date
+            # Otherwise (current/future date): use execution_date
+            if calendar_date < execution_date:
+                record_date_str = calendar_date
+            else:
+                record_date_str = execution_date
+            record_date = f"[{record_date_str},)"
 
             # Set rooms to 0 in the following cases:
             # 1. Price date >= checkout (post-checkout charges)

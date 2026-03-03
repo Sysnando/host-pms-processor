@@ -271,10 +271,17 @@ class StatDailyToReservationTransformer:
         )
 
         # Calculate record_date (PostgreSQL date range format)
-        if hotel_local_time:
-            record_date_str = hotel_local_time.date().isoformat()
+        # If calendar_date < execution_date (past date): use calendar_date
+        # Otherwise (current/future date): use execution_date
+        execution_date = hotel_local_time.date().isoformat() if hotel_local_time else datetime.now().date().isoformat()
+
+        if hotel_date < execution_date:
+            # Past date: use calendar_date
+            record_date_str = hotel_date
         else:
-            record_date_str = datetime.now().date().isoformat()
+            # Current/future date: use execution_date
+            record_date_str = execution_date
+
         record_date = f"[{record_date_str},)"
 
         # Build reservation_id (no separators - stored as Long in DB)
