@@ -290,21 +290,17 @@ class StatDailyToReservationTransformer:
             reservation_id = (
                 f"{base_record.res_id}{base_record.global_res_guest_id}{base_record.master_detail}"
             )
-        else:
-            reservation_id = (
-                f"{base_record.res_id}{base_record.global_res_guest_id}"
-            )
-
-        # Build reservation_id_external (no separators - stored as Long in DB)
-        # Format: ResNo + GlobalResGuestId + MasterDetail (if > 0)
-        if base_record.master_detail > 0:
             reservation_id_external = (
                 f"{base_record.res_no}{base_record.global_res_guest_id}{base_record.master_detail}"
             )
         else:
+            reservation_id = (
+                f"{base_record.res_id}{base_record.global_res_guest_id}"
+            )
             reservation_id_external = (
                 f"{base_record.res_no}{base_record.global_res_guest_id}"
             )
+
 
         # Get occupancy data from occupancy records (HISTORY-OCCUPANCY or FORECAST-OCCUPANCY)
         # IMPORTANT: Sum room_nights and pax from ALL occupancy records

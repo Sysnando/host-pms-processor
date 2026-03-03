@@ -431,9 +431,10 @@ class HostPMSAPIClient:
 
     def get_inventory(
         self,
-        hotel_code: str,
-        start_date: Optional[str] = None,
-        end_date: Optional[str] = None,
+        from_date: str,
+        to_date: str,
+        rate_code: Optional[str] = None,
+        hotel_code: Optional[str] = None,
     ) -> dict[str, Any]:
         """Fetch room inventory and availability from Host PMS API.
 
@@ -442,10 +443,15 @@ class HostPMSAPIClient:
         - Pricing per day
         - Out-of-inventory (OOI) and out-of-order (OOO) information
 
+        The API does not require hotelCode — it is used for logging only.
+        Callers should split large date ranges into 30-day windows and call this
+        method once per window per rate code (ConfigType=RATECODE from get_hotel_config).
+
         Args:
-            hotel_code: The hotel code identifier
-            start_date: Optional start date in ISO format (e.g., "2024-01-01")
-            end_date: Optional end date in ISO format (e.g., "2024-01-31")
+            from_date: Start date in ISO format (e.g., "2024-01-01")
+            to_date: End date in ISO format (e.g., "2024-01-31")
+            rate_code: Optional single rate code (ConfigType=RATECODE) to filter inventory by.
+            hotel_code: Optional hotel code used for logging context only (not sent as query param).
 
         Returns:
             Inventory data from the API response
@@ -453,24 +459,35 @@ class HostPMSAPIClient:
         Raises:
             HostAPIClientError: If the API request fails
         """
+        params: dict[str, Any] = {
+            "fromDate": from_date,
+            "toDate": to_date,
+        }
+        if rate_code:
+            params["rateCode"] = rate_code
+
+        # Build and print the full request URL for debugging
+        full_url = str(httpx.URL(f"{self.base_url}/ExternalRms/InventoryGrid", params=params))
+        print(f"[get_inventory] GET {full_url}")
+
         logger.info(
             "Fetching inventory from Host PMS API",
             hotel_code=hotel_code,
-            start_date=start_date,
-            end_date=end_date,
+            from_date=from_date,
+            to_date=to_date,
+            rate_code=rate_code,
+            url=full_url,
         )
-        params = {"hotelCode": hotel_code}
-        if start_date:
-            params["startDate"] = start_date
-        if end_date:
-            params["endDate"] = end_date
 
         response = self._make_request(
-            "GET", "/Pms/InventoryGrid", params=params, hotel_code=hotel_code
+            "GET", "/ExternalRms/InventoryGrid", params=params, hotel_code=hotel_code
         )
         logger.info(
             "Successfully fetched inventory",
             hotel_code=hotel_code,
+            from_date=from_date,
+            to_date=to_date,
+            rate_code=rate_code,
         )
         return response
 
