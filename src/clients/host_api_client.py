@@ -251,6 +251,197 @@ class HostPMSAPIClient:
 
         raise HostAPIClientError(f"Failed to complete request to {endpoint}")
 
+    async def _make_request_async(
+        self,
+        method: str,
+        endpoint: str,
+        data: Optional[dict[str, Any]] = None,
+        params: Optional[dict[str, Any]] = None,
+        hotel_code: Optional[str] = None,
+    ) -> dict[str, Any]:
+        """Make an async HTTP request to the Host PMS API with retry logic.
+
+        Args:
+            method: HTTP method (GET, POST, PUT, etc.)
+            endpoint: API endpoint path (without base URL)
+            data: Request body data (for POST requests)
+            params: Query parameters
+            hotel_code: Hotel code for logging context
+
+        Returns:
+            JSON response as a dictionary
+
+        Raises:
+            HostAPIAuthenticationError: If authentication fails
+            HostAPINotFoundError: If resource not found
+            HostAPIServerError: If server error occurs
+            HostAPIClientError: For other API errors
+        """
+        import asyncio
+
+        url = f"{self.base_url}{endpoint}"
+        headers = self._get_headers()
+
+        for attempt in range(self.max_retries):
+            try:
+                async with httpx.AsyncClient(timeout=self.timeout) as client:
+                    response = await client.request(
+                        method=method,
+                        url=url,
+                        headers=headers,
+                        json=data,
+                        params=params,
+                    )
+
+                    # Handle authentication errors
+                    if response.status_code == 401:
+                        logger.error(
+                            "Host API authentication failed",
+                            hotel_code=hotel_code,
+                            endpoint=endpoint,
+                            status_code=response.status_code,
+                        )
+                        raise HostAPIAuthenticationError(
+                            f"Authentication failed for {endpoint}: Invalid subscription key"
+                        )
+
+                    # Handle forbidden errors
+                    if response.status_code == 403:
+                        logger.error(
+                            "Host API forbidden",
+                            hotel_code=hotel_code,
+                            endpoint=endpoint,
+                            status_code=response.status_code,
+                        )
+                        raise HostAPIAuthenticationError(
+                            f"Access forbidden for {endpoint}: Check subscription key permissions"
+                        )
+
+                    # Handle not found errors
+                    if response.status_code == 404:
+                        logger.warning(
+                            "Host API resource not found",
+                            hotel_code=hotel_code,
+                            endpoint=endpoint,
+                            status_code=response.status_code,
+                        )
+                        raise HostAPINotFoundError(
+                            f"Resource not found: {endpoint}"
+                        )
+
+                    # Handle server errors with retry
+                    if response.status_code >= 500:
+                        if attempt < self.max_retries - 1:
+                            wait_time = self.retry_backoff_base ** attempt
+                            logger.warning(
+                                "Host API server error, retrying",
+                                hotel_code=hotel_code,
+                                endpoint=endpoint,
+                                status_code=response.status_code,
+                                attempt=attempt + 1,
+                                max_retries=self.max_retries,
+                                wait_seconds=wait_time,
+                            )
+                            await asyncio.sleep(wait_time)
+                            continue
+                        else:
+                            logger.error(
+                                "Host API server error, max retries exceeded",
+                                hotel_code=hotel_code,
+                                endpoint=endpoint,
+                                status_code=response.status_code,
+                            )
+                            raise HostAPIServerError(
+                                f"Server error at {endpoint}: {response.text}"
+                            )
+
+                    # Handle client errors (non-auth, non-404)
+                    if 400 <= response.status_code < 500:
+                        logger.error(
+                            "Host API client error",
+                            hotel_code=hotel_code,
+                            endpoint=endpoint,
+                            status_code=response.status_code,
+                            response_text=response.text[:200],  # Limit error text
+                        )
+                        raise HostAPIClientError(
+                            f"Client error at {endpoint}: {response.text}"
+                        )
+
+                    # Handle success
+                    if response.status_code in (200, 201, 204):
+                        logger.debug(
+                            "Host API request successful",
+                            hotel_code=hotel_code,
+                            endpoint=endpoint,
+                            method=method,
+                            status_code=response.status_code,
+                        )
+                        if response.text:
+                            return response.json()
+                        return {}
+
+                    # Unexpected status code
+                    logger.error(
+                        "Unexpected Host API response status",
+                        hotel_code=hotel_code,
+                        endpoint=endpoint,
+                        status_code=response.status_code,
+                    )
+                    raise HostAPIClientError(
+                        f"Unexpected response from {endpoint}: {response.status_code}"
+                    )
+
+            except httpx.TimeoutException as e:
+                if attempt < self.max_retries - 1:
+                    wait_time = self.retry_backoff_base ** attempt
+                    logger.warning(
+                        "Host API request timeout, retrying",
+                        hotel_code=hotel_code,
+                        endpoint=endpoint,
+                        attempt=attempt + 1,
+                        max_retries=self.max_retries,
+                        wait_seconds=wait_time,
+                    )
+                    await asyncio.sleep(wait_time)
+                    continue
+                else:
+                    logger.error(
+                        "Host API request timeout, max retries exceeded",
+                        hotel_code=hotel_code,
+                        endpoint=endpoint,
+                    )
+                    raise HostAPIClientError(
+                        f"Request timeout for {endpoint}"
+                    ) from e
+
+            except httpx.RequestError as e:
+                if attempt < self.max_retries - 1:
+                    wait_time = self.retry_backoff_base ** attempt
+                    logger.warning(
+                        "Host API request error, retrying",
+                        hotel_code=hotel_code,
+                        endpoint=endpoint,
+                        error=str(e),
+                        attempt=attempt + 1,
+                        max_retries=self.max_retries,
+                        wait_seconds=wait_time,
+                    )
+                    await asyncio.sleep(wait_time)
+                    continue
+                else:
+                    logger.error(
+                        "Host API request error, max retries exceeded",
+                        hotel_code=hotel_code,
+                        endpoint=endpoint,
+                        error=str(e),
+                    )
+                    raise HostAPIClientError(
+                        f"Request failed for {endpoint}: {str(e)}"
+                    ) from e
+
+        raise HostAPIClientError(f"Failed to complete request to {endpoint}")
+
     def get_hotel_config(self, hotel_code: str) -> dict[str, Any]:
         """Fetch hotel configuration from Host PMS API.
 
@@ -490,6 +681,128 @@ class HostPMSAPIClient:
             rate_code=rate_code,
         )
         return response
+
+    async def get_inventory_all_rates(
+        self,
+        config_response: Any,
+        from_date: str,
+        to_date: str,
+    ) -> dict[str, Any]:
+        """Fetch inventory for all rate codes in parallel with concurrency limit.
+
+        Extracts rate codes from config, then fetches inventory for each rate code
+        in parallel with a maximum of 5 concurrent requests.
+
+        Args:
+            config_response: Hotel configuration response (HotelConfigResponse or dict)
+            from_date: Start date in ISO format (e.g., "2024-01-01")
+            to_date: End date in ISO format (e.g., "2024-01-31")
+
+        Returns:
+            Combined inventory data with all room inventories
+
+        Raises:
+            HostAPIClientError: If the API requests fail
+        """
+        import asyncio
+        from src.models.host.config import HotelConfigResponse
+
+        # Convert dict to HotelConfigResponse if needed
+        if isinstance(config_response, dict):
+            config_model = HotelConfigResponse(**config_response)
+        else:
+            config_model = config_response
+
+        # Extract hotel code
+        hotel_code = config_model.hotel_info.hotel_code
+
+        # Extract rate codes (price lists) from config
+        rate_codes = [price_list.code for price_list in config_model.price_lists]
+
+        if not rate_codes:
+            logger.warning(
+                "No rate codes found in config, fetching inventory without rate filter",
+                hotel_code=hotel_code,
+            )
+            # Fallback: fetch without rate code filter
+            return self.get_inventory(
+                hotel_code=hotel_code,
+                start_date=from_date,
+                end_date=to_date,
+            )
+
+        logger.info(
+            "Fetching inventory for all rate codes in parallel",
+            hotel_code=hotel_code,
+            rate_count=len(rate_codes),
+            from_date=from_date,
+            to_date=to_date,
+            max_concurrent=5,
+        )
+
+        # Create semaphore to limit concurrent requests to 5
+        semaphore = asyncio.Semaphore(5)
+
+        async def fetch_inventory_for_rate(rate_code: str) -> dict[str, Any]:
+            """Fetch inventory for a single rate code with semaphore."""
+            async with semaphore:
+                try:
+                    logger.debug(
+                        "Fetching inventory for rate code",
+                        hotel_code=hotel_code,
+                        rate_code=rate_code,
+                    )
+
+                    params = {
+                        "hotelCode": hotel_code,
+                        "startDate": from_date,
+                        "endDate": to_date,
+                        "rateCode": rate_code,
+                    }
+
+                    response = await self._make_request_async(
+                        "GET", "/Pms/InventoryGrid", params=params, hotel_code=hotel_code
+                    )
+
+                    logger.debug(
+                        "Successfully fetched inventory for rate code",
+                        hotel_code=hotel_code,
+                        rate_code=rate_code,
+                        item_count=len(response.get("roomInventories", [])),
+                    )
+
+                    return response
+
+                except Exception as e:
+                    logger.warning(
+                        "Failed to fetch inventory for rate code",
+                        hotel_code=hotel_code,
+                        rate_code=rate_code,
+                        error=str(e),
+                    )
+                    # Return empty response for failed rate codes
+                    return {"roomInventories": []}
+
+        # Fetch inventory for all rate codes in parallel
+        results = await asyncio.gather(
+            *[fetch_inventory_for_rate(rate_code) for rate_code in rate_codes],
+            return_exceptions=False
+        )
+
+        # Combine all room inventories from all rate codes
+        all_room_inventories = []
+        for result in results:
+            if result and "roomInventories" in result:
+                all_room_inventories.extend(result["roomInventories"])
+
+        logger.info(
+            "Successfully fetched inventory for all rate codes",
+            hotel_code=hotel_code,
+            rate_count=len(rate_codes),
+            total_items=len(all_room_inventories),
+        )
+
+        return {"roomInventories": all_room_inventories}
 
     def get_revenue(
         self,

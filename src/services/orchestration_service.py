@@ -59,10 +59,9 @@ class HostPMSConnectorOrchestrator:
             # This extracts static inventory from hotel config
             ProcessInventoryStep(self.esb_client, self.s3_manager),
             # Step 4: Process inventory grid from API (optional, recommended)
-            # TODO: Enable this step once inventory grid API is ready
             # This fetches dynamic rate-based inventory from InventoryGrid API
             # Uses calculated date ranges from FetchParametersStep
-            # ProcessInventoryGridStep(self.host_api_client, self.esb_client, self.s3_manager),
+            ProcessInventoryGridStep(self.host_api_client, self.esb_client, self.s3_manager),
             # Step 5: Process segments (optional)
             ProcessSegmentsStep(self.esb_client, self.s3_manager),
             # Step 6: Process StatDaily and convert to reservations (optional)
