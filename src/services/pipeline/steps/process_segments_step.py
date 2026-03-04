@@ -41,6 +41,14 @@ class ProcessSegmentsStep(PipelineStep):
             return False
 
         try:
+            # Upload raw segments to S3 (same as processed, as segments are derived from config)
+            raw_upload = self.s3_manager.upload_raw(
+                hotel_code=context.hotel_code,
+                data_type="segments",
+                data=context.segments_collection,
+            )
+            context.add_s3_upload("segments_raw", raw_upload)
+
             # Upload processed segments to S3
             processed_upload = self.s3_manager.upload_processed(
                 hotel_code=context.hotel_code,
