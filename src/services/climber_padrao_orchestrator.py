@@ -146,7 +146,7 @@ class ClimberPadraoOrchestrator:
             hotel_local_time=hotel_local_time,
             config_response=config_response,
         )
-        _, segments_collection = ConfigTransformer.transform(config_response)
+        hotel_config, segments_collection = ConfigTransformer.transform(config_response)
 
         if not reservation_collection.reservations and not segments_collection:
             logger.warning(
@@ -196,9 +196,27 @@ class ClimberPadraoOrchestrator:
                 "segments_uploaded": False,
             }
 
+        # Upload hotel config (same timestamp, for ESB pmsHotelConfig)
+        try:
+            self.s3_manager.upload_config(
+                hotel_config,
+                timestamp=timestamp,
+                hotel_code_s3=hotel_code_s3,
+            )
+        except S3UploadError as e:
+            logger.error("Upload config failed", error=str(e))
+            return {
+                "success": False,
+                "error": f"Upload config: {e}",
+                "timestamp": timestamp,
+                "reservations_count": len(reservation_collection.reservations),
+                "segments_uploaded": segments_uploaded,
+            }
+
         # 7. ESB
         res_key = f"{hotel_code_s3}/reservations-{timestamp}.json"
         seg_key = f"{hotel_code_s3}/segments-{timestamp}.json"
+        config_key = f"{hotel_code_s3}/config-{timestamp}.json"
         try:
             await self.esb_padrao.register_reservation_file(
                 hotel_code_s3=hotel_code_s3,
@@ -209,6 +227,11 @@ class ClimberPadraoOrchestrator:
                 hotel_code_s3=hotel_code_s3,
                 timestamp=timestamp,
                 file_key=seg_key,
+            )
+            await self.esb_padrao.register_hotel_config_file(
+                hotel_code_s3=hotel_code_s3,
+                timestamp=timestamp,
+                file_key=config_key,
             )
         except ESBPadraoError as e:
             logger.error("ESB register failed", error=str(e))

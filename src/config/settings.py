@@ -28,6 +28,7 @@ class AWSSettings(BaseSettings):
     s3_raw_reservations_bucket: str = ""
     s3_reservations_bucket: str = ""
     s3_segments_bucket: str = ""
+    s3_hotel_configs_bucket: str = ""
     sqs_message_group_id: str = ""
 
     model_config = SettingsConfigDict(env_prefix="AWS_")
@@ -52,6 +53,7 @@ class ClimberESBSettings(BaseSettings):
     auth_url: str = "https://qa-esb.climberrms.com:9443/oauth2/token"
     reservations_url: str = "https://qa-esb.climberrms.com/pms-integration/1.0/pmsReservation"
     segments_url: str = "https://qa-esb.climberrms.com/pms-integration/1.0/pmsSegment"
+    hotel_config_url: str = "https://qa-esb.climberrms.com:8243/pms-integration/1.0/pmsHotelConfig"
 
     model_config = SettingsConfigDict(env_prefix="ESB_")
 
@@ -117,6 +119,7 @@ class Settings(BaseSettings):
     s3_raw_reservations_bucket: str = ""
     s3_reservations_bucket: str = ""
     s3_segments_bucket: str = ""
+    s3_hotel_configs_bucket: str = ""
     sqs_queue_url: str = ""
     sqs_message_group_id: str = ""
 
@@ -124,6 +127,7 @@ class Settings(BaseSettings):
     esb_auth_url: str = ""
     esb_reservations_url: str = ""
     esb_segments_url: str = ""
+    esb_hotelconfig_url: str = ""  # env: ESB_HOTELCONFIG_URL
     esb_basic_auth: str = ""
 
     # Host PMS API from .env (HOST_API_SUBSCRIPTION_KEY, HOST_API_BASE_URL)
@@ -176,6 +180,14 @@ class Settings(BaseSettings):
     def padrao_segments_bucket(self) -> str:
         """S3 segments bucket (padrão)."""
         return self.s3_segments_bucket or self.aws.s3_segments_bucket or ""
+
+    def padrao_hotel_configs_bucket(self) -> str:
+        """S3 hotel configs bucket (padrão). Where pms-processor expects config files."""
+        return (
+            self.s3_hotel_configs_bucket
+            or self.aws.s3_hotel_configs_bucket
+            or ""
+        )
 
     def padrao_sqs_queue_url(self) -> str:
         """SQS queue URL (padrão)."""

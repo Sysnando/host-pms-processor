@@ -91,6 +91,7 @@ ESB_BASIC_AUTH=...       # Base64
 ESB_AUTH_URL=https://qa-esb.climberrms.com:9443/oauth2/token
 ESB_RESERVATIONS_URL=https://qa-esb.climberrms.com/pms-integration/1.0/pmsReservation
 ESB_SEGMENTS_URL=https://qa-esb.climberrms.com/pms-integration/1.0/pmsSegment
+ESB_HOTELCONFIG_URL=https://qa-esb.climberrms.com:8243/pms-integration/1.0/pmsHotelConfig
 
 # AWS
 AWS_REGION=eu-west-2
@@ -102,6 +103,7 @@ AWS_REGION=eu-west-2
 S3_RAW_RESERVATIONS_BUCKET=qa-pms-raw-reservations
 S3_RESERVATIONS_BUCKET=qa-pms-reservations
 S3_SEGMENTS_BUCKET=qa-pms-segments
+S3_HOTEL_CONFIGS_BUCKET=qa-pms-hotel-configs
 
 # SQS
 SQS_QUEUE_URL=https://sqs.eu-west-2.amazonaws.com/.../qa-pms-processor-queue.fifo
