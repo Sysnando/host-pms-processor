@@ -24,6 +24,7 @@ class ESBPadraoClient:
         self.auth_url = (settings.esb_auth_url or settings.esb.auth_url or "").strip() or ""
         self.reservations_url = (settings.esb_reservations_url or settings.esb.reservations_url or "").strip() or ""
         self.segments_url = (settings.esb_segments_url or settings.esb.segments_url or "").strip() or ""
+        self.hotel_config_url = (settings.esb_hotelconfig_url or settings.esb.hotel_config_url or "").strip() or ""
         self.basic_auth = (settings.esb_basic_auth or settings.esb.basic_auth or "").strip() or ""
         self.timeout = settings.esb.request_timeout
 
@@ -172,6 +173,50 @@ class ESBPadraoClient:
         )
         logger.info(
             "Registered segment file",
+            hotel_code_s3=hotel_code_s3,
+            file=key,
+        )
+        return result
+
+    async def register_hotel_config_file(
+        self,
+        hotel_code_s3: str,
+        timestamp: str,
+        file_key: Optional[str] = None,
+    ) -> dict[str, Any]:
+        """Register hotel config file in ESB (Climber padrão payload).
+
+        Same payload structure as segments/reservations: payload.code, record_date,
+        last_updated, complete, file. file_key = S3 key without bucket
+        (e.g. BRNPEDCO/config-2024-07-04T11:26:32Z.json).
+        """
+        if not self.hotel_config_url:
+            logger.warning("ESB hotel config URL not set; skipping register_hotel_config_file")
+            return {}
+        ts = self._timestamp_iso_seconds(timestamp)
+        key = file_key or f"{hotel_code_s3}/config-{ts}.json"
+        payload = {
+            "payload": {
+                "code": hotel_code_s3,
+                "record_date": ts,
+                "last_updated": ts,
+                "complete": False,
+                "file": key,
+            }
+        }
+        token = await self._get_token()
+        logger.info(
+            "Registering hotel config file in ESB (padrão)",
+            hotel_code_s3=hotel_code_s3,
+            file=key,
+        )
+        result = await self._post_payload(
+            self.hotel_config_url,
+            payload,
+            token,
+        )
+        logger.info(
+            "Registered hotel config file",
             hotel_code_s3=hotel_code_s3,
             file=key,
         )

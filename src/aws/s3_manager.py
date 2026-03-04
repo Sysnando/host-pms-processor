@@ -533,3 +533,53 @@ class S3Manager:
         except ClientError as e:
             logger.error("Failed to upload segments", key=key, error=str(e))
             raise S3UploadError(f"Upload segments failed: {str(e)}") from e
+
+    def upload_config(
+        self,
+        config: Any,
+        timestamp: str,
+        hotel_code_s3: str,
+        bucket: str | None = None,
+    ) -> dict[str, str]:
+        """Upload transformed hotel config to padrão hotel-configs bucket.
+
+        Path: {hotel_code_s3}/config-{timestamp}.json (same pattern as segments/
+        reservations). Bucket must be the one pms-processor reads from (e.g. qa-pms-hotel-configs).
+
+        Args:
+            config: HotelConfigData or dict (Climber format).
+            timestamp: Same ISO timestamp as raw/reservations/segments.
+            hotel_code_s3: Hotel code for S3 paths (prefix + filename).
+            bucket: Override bucket; if None, uses settings.padrao_hotel_configs_bucket().
+
+        Returns:
+            Dict with 'key' and 'url'.
+        """
+        ts = self._timestamp_iso_seconds(timestamp)
+        key = f"{hotel_code_s3}/config-{ts}.json"
+        bucket_name = bucket or settings.padrao_hotel_configs_bucket()
+        if not bucket_name:
+            bucket_name = settings.aws_s3_processed_prefix + "hotel-configs"
+        body = self._serialize_data(config)
+        logger.info(
+            "Uploading config (padrão)",
+            hotel_code_s3=hotel_code_s3,
+            key=key,
+        )
+        try:
+            self.s3_client.put_object(
+                Bucket=bucket_name,
+                Key=key,
+                Body=body.encode("utf-8"),
+                ContentType="application/json",
+                Metadata={
+                    "hotel-code-s3": hotel_code_s3,
+                    "format": "climber-standardized",
+                },
+            )
+            url = f"s3://{bucket_name}/{key}"
+            logger.info("Uploaded config", key=key, url=url)
+            return {"key": key, "url": url}
+        except ClientError as e:
+            logger.error("Failed to upload config", key=key, error=str(e))
+            raise S3UploadError(f"Upload config failed: {str(e)}") from e
