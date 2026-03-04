@@ -72,7 +72,7 @@ class ProcessInventoryGridStep(PipelineStep):
             )
 
             # Fetch inventory for all rate codes
-            inventory_response = self.host_api_client.get_inventory_all_rates(
+            inventory_response = await self.host_api_client.get_inventory_all_rates(
                 config_response=context.config_response,
                 from_date=from_date,
                 to_date=to_date,
