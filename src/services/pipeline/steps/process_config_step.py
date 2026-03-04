@@ -30,6 +30,11 @@ class ProcessConfigStep(PipelineStep):
     async def execute(self, context: PipelineContext) -> bool:
         """Process hotel configuration.
 
+        Fetches hotel config from Host PMS API and transforms it to extract
+        segments. Config is stored in context for use by other steps
+        (InventoryGrid, Segments). Does NOT upload config to S3 - only
+        inventory data should be in hotel-configs buckets.
+
         Args:
             context: Pipeline context
 
@@ -38,46 +43,24 @@ class ProcessConfigStep(PipelineStep):
         """
         try:
             # Fetch config from Host PMS
+            self.logger.info(
+                "Fetching hotel config from Host PMS API",
+                hotel_code=context.hotel_code,
+            )
             context.config_response = self.host_api_client.get_hotel_config(
                 context.hotel_code
             )
 
-            # Upload raw config to S3
-            raw_upload = self.s3_manager.upload_raw(
-                hotel_code=context.hotel_code,
-                data_type="hotel-configs",
-                data=context.config_response,
-            )
-            context.add_s3_upload("config_raw", raw_upload)
-
-            # Transform config
+            # Transform config to extract segments
+            # Config data and segments are stored in context for other steps
             context.config_data, context.segments_collection = ConfigTransformer.transform(
                 context.config_response
             )
 
-            # Upload processed config to S3
-            processed_upload = self.s3_manager.upload_processed(
-                hotel_code=context.hotel_code,
-                data_type="hotel-configs",
-                data=context.config_data,
-            )
-            context.add_s3_upload("config_processed", processed_upload)
-
-            # Register with ESB
-            await self.esb_client.register_file(
-                hotel_code=context.hotel_code,
-                file_type="config",
-                file_url=processed_upload["url"],
-                file_key=processed_upload["key"],
-                record_count=context.config_data.room_count,
-            )
-
-            # Add SQS message
-            context.add_sqs_message("config", processed_upload["key"])
-
             # Store statistics
             context.stats["config"] = {
                 "room_count": context.config_data.room_count,
+                "segments_extracted": True,
             }
 
             self.logger.info(
