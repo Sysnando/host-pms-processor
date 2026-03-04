@@ -7,24 +7,15 @@ from typing import Any
 
 from src.config import configure_logging, get_logger, settings
 from src.services import HostPMSConnectorOrchestrator
-from src.services.climber_padrao_orchestrator import ClimberPadraoOrchestrator
 
 logger = get_logger(__name__)
-
-
-def _use_climber_padrao() -> bool:
-    """True when HOTEL_CODE and HOTEL_CODE_S3 are set (run Climber padrão flow, single hotel from .env)."""
-    code = (settings.hotel_code or settings.hotel.hotel_code or "").strip()
-    code_s3 = (settings.hotel_code_s3 or settings.hotel.hotel_code_s3 or "").strip()
-    return bool(code and code_s3)
 
 
 async def main() -> int:
     """Main async function to run the ETL pipeline.
 
-    When HOTEL_CODE and HOTEL_CODE_S3 are set, runs the Climber padrão flow
-    (single hotel, single timestamp, raw S3 → transform → reservations/segments S3 → ESB → SQS).
-    Otherwise runs the legacy multi-hotel pipeline.
+    If HOTEL_CODE is set in environment, processes only that hotel.
+    Otherwise, processes all hotels configured in Climber ESB.
     """
     logger.info(
         "Starting Host PMS Connector",
@@ -32,26 +23,38 @@ async def main() -> int:
     )
 
     try:
-        if _use_climber_padrao():
-            missing = settings.validate_climber_padrao()
-            if missing:
-                logger.error("Climber padrão config incomplete", missing=missing)
-                print(json.dumps({"success": False, "error": f"Missing: {', '.join(missing)}"}))
-                return 1
-            orchestrator = ClimberPadraoOrchestrator()
-            results = await orchestrator.run()
-            print(json.dumps(results, indent=2, default=str))
-            return 0 if results.get("success") else 1
+        orchestrator = HostPMSConnectorOrchestrator()
+
+        # Check if specific hotel code is configured
+        hotel_code = (settings.hotel_code or settings.hotel.hotel_code or "").strip()
+
+        if hotel_code:
+            # Single hotel mode
+            logger.info("Processing single hotel from settings", hotel_code=hotel_code)
+            result = await orchestrator.process_hotel(hotel_code)
+
+            logger.info(
+                "ETL pipeline complete",
+                hotel_code=hotel_code,
+                success=result["success"],
+            )
+
+            print(json.dumps(result, indent=2, default=str))
+            return 0 if result["success"] else 1
         else:
-            orchestrator = HostPMSConnectorOrchestrator()
+            # Multi-hotel mode
+            logger.info("Processing all hotels from ESB")
             results = await orchestrator.process_all_hotels()
+
             logger.info(
                 "ETL pipeline complete",
                 total_hotels=results["total_hotels"],
                 successful_hotels=results["successful_hotels"],
                 failed_hotels=results["failed_hotels"],
             )
+
             print(json.dumps(results, indent=2, default=str))
+
             if results["successful_hotels"] > 0:
                 return 0
             elif results["failed_hotels"] == 0:
@@ -60,6 +63,7 @@ async def main() -> int:
             else:
                 logger.error("All hotels failed to process")
                 return 1
+
     except Exception as e:
         logger.error(
             "Fatal error in main application",
