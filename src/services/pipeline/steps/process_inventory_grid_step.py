@@ -1,12 +1,14 @@
 """Step to process room inventory from InventoryGrid API.
 
 This step fetches inventory data from the Host PMS InventoryGrid API,
-which provides detailed rate-based inventory information.
+which provides detailed rate-based inventory information, transforms it
+to Climber format, and uploads to hotel-configs buckets.
 """
 
 from src.aws import S3Manager
 from src.clients import ClimberESBClient, HostPMSAPIClient
 from src.services.pipeline import PipelineContext, PipelineStep
+from src.transformers.inventory_grid_transformer import InventoryGridTransformer
 
 
 class ProcessInventoryGridStep(PipelineStep):
@@ -90,26 +92,33 @@ class ProcessInventoryGridStep(PipelineStep):
             if room_inventories:
                 raw_upload = self.s3_manager.upload_raw(
                     hotel_code=context.hotel_code,
-                    data_type="inventory-grid",
+                    data_type="hotel-configs",
                     data=inventory_response,
                 )
                 context.add_s3_upload("inventory_grid_raw", raw_upload)
 
-                # Upload processed inventory (same as raw for now)
+                # Transform to Climber format
+                self.logger.info(
+                    "Transforming inventory grid to Climber format",
+                    hotel_code=context.hotel_code,
+                )
+                room_inventory_data = InventoryGridTransformer.transform(inventory_response)
+
+                # Upload processed inventory in Climber format
                 processed_upload = self.s3_manager.upload_processed(
                     hotel_code=context.hotel_code,
-                    data_type="inventory",
-                    data=inventory_response,
+                    data_type="hotel-configs",
+                    data=room_inventory_data,
                 )
                 context.add_s3_upload("inventory_grid_processed", processed_upload)
 
                 # Register with ESB
                 await self.esb_client.register_file(
                     hotel_code=context.hotel_code,
-                    file_type="inventory",
+                    file_type="hotel-configs",
                     file_url=processed_upload["url"],
                     file_key=processed_upload["key"],
-                    record_count=len(room_inventories),
+                    record_count=len(room_inventory_data.room_inventory),
                 )
 
                 # Add SQS message
