@@ -716,8 +716,8 @@ class HostPMSAPIClient:
         # Extract hotel code
         hotel_code = config_model.hotel_info.hotel_code
 
-        # Extract rate codes (price lists) from config
-        rate_codes = [price_list.code for price_list in config_model.price_lists]
+        # Extract rate codes from config (ConfigType=RATECODE)
+        rate_codes = [item.code for item in config_model.get_config_by_type("RATECODE")]
 
         if not rate_codes:
             logger.warning(
@@ -732,9 +732,10 @@ class HostPMSAPIClient:
             )
 
         logger.info(
-            "Fetching inventory for all rate codes in parallel",
+            "Fetching inventory for all rate codes (ConfigType=RATECODE) in parallel",
             hotel_code=hotel_code,
             rate_count=len(rate_codes),
+            rate_codes=rate_codes[:10] if len(rate_codes) > 10 else rate_codes,  # Log first 10 rate codes
             from_date=from_date,
             to_date=to_date,
             max_concurrent=5,
@@ -753,25 +754,45 @@ class HostPMSAPIClient:
                         rate_code=rate_code,
                     )
 
-                    params = {
-                        "hotelCode": hotel_code,
-                        "startDate": from_date,
-                        "endDate": to_date,
-                        "rateCode": rate_code,
+                    params: dict[str, Any] = {
+                        "fromDate": from_date,
+                        "toDate": to_date,
                     }
+                    if rate_code:
+                        params["rateCode"] = rate_code
 
                     response = await self._make_request_async(
-                        "GET", "/Pms/InventoryGrid", params=params, hotel_code=hotel_code
+                        "GET", "/ExternalRms/InventoryGrid", params=params, hotel_code=hotel_code
                     )
+
+                    # Handle both list and dict responses
+                    if isinstance(response, list):
+                        # API returned a list directly
+                        item_count = len(response)
+                        normalized_response = {"roomInventories": response}
+                    elif isinstance(response, dict):
+                        # API returned a dict with roomInventories key
+                        item_count = len(response.get("roomInventories", []))
+                        normalized_response = response
+                    else:
+                        # Unexpected response type
+                        logger.warning(
+                            "Unexpected response type from InventoryGrid API",
+                            hotel_code=hotel_code,
+                            rate_code=rate_code,
+                            response_type=type(response).__name__,
+                        )
+                        normalized_response = {"roomInventories": []}
+                        item_count = 0
 
                     logger.debug(
                         "Successfully fetched inventory for rate code",
                         hotel_code=hotel_code,
                         rate_code=rate_code,
-                        item_count=len(response.get("roomInventories", [])),
+                        item_count=item_count,
                     )
 
-                    return response
+                    return normalized_response
 
                 except Exception as e:
                     logger.warning(

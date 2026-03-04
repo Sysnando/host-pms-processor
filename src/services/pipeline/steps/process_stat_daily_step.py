@@ -117,10 +117,10 @@ class ProcessStatDailyStep(PipelineStep):
             if all_stat_daily_records:
                 raw_upload = self.s3_manager.upload_raw(
                     hotel_code=context.hotel_code,
-                    data_type="stat-daily",
+                    data_type="reservations",
                     data=all_stat_daily_records,
                 )
-                context.add_s3_upload("stat_daily_raw", raw_upload)
+                context.add_s3_upload("reservations_raw", raw_upload)
 
                 # Store raw records in context
                 context.stat_daily_records = all_stat_daily_records

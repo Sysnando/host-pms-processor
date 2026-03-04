@@ -31,7 +31,7 @@ def calculate_date_ranges(
         from_date = (today - timedelta(days=730)).isoformat()  # 2 years ago
 
         # Calculate default to_date: 2 years in the future
-        default_to_date = (today + timedelta(days=730)).date()
+        default_to_date = today + timedelta(days=730)
 
         # Use the smaller date between default and maxImportDate
         if max_import_date:
@@ -59,7 +59,7 @@ def calculate_date_ranges(
         from_date = (last_import_dt.date() - timedelta(days=7)).isoformat()
 
         # Calculate default to_date: today + 720 days (2 years future)
-        default_to_date = (today + timedelta(days=720)).date()
+        default_to_date = today + timedelta(days=720)
 
         # Use the smaller date between default and maxImportDate
         if max_import_date:
