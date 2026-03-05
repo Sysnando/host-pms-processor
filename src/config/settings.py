@@ -37,7 +37,7 @@ class AWSSettings(BaseSettings):
 class ClimberESBSettings(BaseSettings):
     """Climber ESB API configuration."""
 
-    base_url: str = "https://qa-esb.climberrms.com:9443/oauth2/token"
+    base_url: str = "https://qa-esb.climberrms.com:9443"
     api_key: str = "test-api-key-default"  # Default for testing, should be overridden in production
     request_timeout: int = 30
     max_retries: int = 3
