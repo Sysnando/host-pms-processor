@@ -293,15 +293,19 @@ class ConfigTransformer:
         return charges
 
     @staticmethod
-    def get_room_inventory(host_config: dict[str, Any] | HotelConfigResponse) -> RoomInventoryData:
+    def get_room_inventory(
+        host_config: dict[str, Any] | HotelConfigResponse,
+        execution_date: Any = None,
+    ) -> RoomInventoryData:
         """Extract room inventory from config.
 
         Maps CATEGORY items to RoomInventoryItem objects for Climber format.
         Uses the Inventory field from each CATEGORY to set room availability.
-        Calendar date range is set to open-ended from today onwards: "[today,)"
+        Calendar date range is set to open-ended from execution date onwards: "[execution_date,)"
 
         Args:
             host_config: Hotel config from Host PMS API (dict or HotelConfigResponse model)
+            execution_date: Date to use for calendar range start (default: today UTC)
 
         Returns:
             RoomInventoryData with all room inventory items
@@ -330,8 +334,18 @@ class ConfigTransformer:
         )
 
         room_inventory = []
-        today = datetime.utcnow().date().isoformat()
-        calendar_date_range = f"[{today},)"  # Open-ended range from today onwards
+
+        # Use execution_date if provided, otherwise use today
+        if execution_date is None:
+            execution_date = datetime.utcnow().date()
+
+        # Handle both date objects and ISO strings
+        if hasattr(execution_date, 'isoformat'):
+            execution_date_str = execution_date.isoformat()
+        else:
+            execution_date_str = str(execution_date)
+
+        calendar_date_range = f"[{execution_date_str},)"  # Open-ended range from execution date onwards
 
         for room_item in host_config.rooms:
             try:

@@ -51,11 +51,11 @@ class HostPMSConnectorOrchestrator:
             # Calculates date ranges for all subsequent steps
             FetchParametersStep(self.esb_client),
             # Step 2: Process hotel config (optional)
+            # Extracts segments and room inventory from /Config endpoint
+            # Inventory is extracted from CATEGORY items and uploaded to hotel-configs
             ProcessConfigStep(self.host_api_client, self.esb_client, self.s3_manager),
-            # Step 3: Process inventory grid from API (optional, recommended)
-            # This fetches dynamic rate-based inventory from InventoryGrid API
-            # Uses calculated date ranges from FetchParametersStep
-            # Transforms to Climber format and uploads to hotel-configs buckets
+            # Step 3: Process inventory grid from API (DEPRECATED)
+            # ProcessInventoryGridStep is deprecated - inventory now comes from Config step
             # ProcessInventoryGridStep(self.host_api_client, self.esb_client, self.s3_manager),
             # Step 4: Process segments (optional)
             ProcessSegmentsStep(self.esb_client, self.s3_manager),

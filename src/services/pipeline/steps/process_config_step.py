@@ -31,9 +31,8 @@ class ProcessConfigStep(PipelineStep):
         """Process hotel configuration.
 
         Fetches hotel config from Host PMS API and transforms it to extract
-        segments. Config is stored in context for use by other steps
-        (InventoryGrid, Segments). Does NOT upload config to S3 - only
-        inventory data should be in hotel-configs buckets.
+        segments and room inventory. Uploads inventory to hotel-configs bucket
+        and registers with ESB.
 
         Args:
             context: Pipeline context
@@ -57,16 +56,67 @@ class ProcessConfigStep(PipelineStep):
                 context.config_response
             )
 
+            # Extract room inventory from config (CATEGORY items with Inventory field)
+            # This replaces the deprecated InventoryGrid API call
+            self.logger.info(
+                "Extracting room inventory from config",
+                hotel_code=context.hotel_code,
+            )
+
+            from datetime import datetime
+            execution_date = datetime.utcnow().date()
+
+            context.room_inventory = ConfigTransformer.get_room_inventory(
+                context.config_response,
+                execution_date=execution_date,
+            )
+
+            # Upload raw config data
+            if context.config_response:
+                raw_upload = self.s3_manager.upload_raw(
+                    hotel_code=context.hotel_code,
+                    data_type="hotel-configs",
+                    data=context.config_response,
+                )
+                context.add_s3_upload("config_raw", raw_upload)
+
+            # Upload processed inventory to hotel-configs bucket
+            if context.room_inventory and len(context.room_inventory.room_inventory) > 0:
+                processed_upload = self.s3_manager.upload_processed(
+                    hotel_code=context.hotel_code,
+                    data_type="hotel-configs",
+                    data=context.room_inventory,
+                )
+                context.add_s3_upload("inventory_processed", processed_upload)
+
+                # Register with ESB
+                await self.esb_client.register_file(
+                    hotel_code=context.hotel_code,
+                    file_type="hotel-configs",
+                    file_url=processed_upload["url"],
+                    file_key=processed_upload["key"],
+                    record_count=len(context.room_inventory.room_inventory),
+                    is_first_import=context.is_first_import,
+                )
+
+                self.logger.info(
+                    "Uploaded and registered room inventory",
+                    hotel_code=context.hotel_code,
+                    room_count=len(context.room_inventory.room_inventory),
+                )
+
             # Store statistics
             context.stats["config"] = {
                 "room_count": context.config_data.room_count,
                 "segments_extracted": True,
+                "inventory_items": len(context.room_inventory.room_inventory) if context.room_inventory else 0,
             }
 
             self.logger.info(
                 "Processed config successfully",
                 hotel_code=context.hotel_code,
                 room_count=context.config_data.room_count,
+                inventory_items=len(context.room_inventory.room_inventory) if context.room_inventory else 0,
             )
 
             return True
