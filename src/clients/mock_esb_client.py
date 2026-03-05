@@ -82,12 +82,14 @@ class MockClimberESBClient:
             "lastImportDate": last_import.isoformat() + "Z",
             "minImportDate": min_import.isoformat() + "Z",
             "maxImportDate": max_import.isoformat() + "Z",
+            "isFirstImport": False,  # Mock always returns existing hotel with import history
         }
 
         logger.info(
             "MOCK: Returning mock hotel parameters",
             hotel_code=hotel_code,
             last_import_date=parameters["lastImportDate"],
+            is_first_import=False,
         )
 
         return parameters
@@ -99,6 +101,7 @@ class MockClimberESBClient:
         file_url: str,
         file_key: str,
         record_count: int,
+        is_first_import: bool = False,
     ) -> dict[str, Any]:
         """Log mock file registration instead of calling ESB.
 
@@ -108,6 +111,7 @@ class MockClimberESBClient:
             file_url: S3 URL or path to the processed file
             file_key: S3 object key for the processed file
             record_count: Number of records in the file
+            is_first_import: If True, sets complete=True (when KpisRecordDateMax was null/empty)
 
         Returns:
             Mock registration response
@@ -119,6 +123,8 @@ class MockClimberESBClient:
             file_url=file_url,
             file_key=file_key,
             record_count=record_count,
+            is_first_import=is_first_import,
+            complete=is_first_import,
         )
 
         response = {

@@ -58,7 +58,7 @@ class HostPMSConnectorOrchestrator:
             # This fetches dynamic rate-based inventory from InventoryGrid API
             # Uses calculated date ranges from FetchParametersStep
             # Transforms to Climber format and uploads to hotel-configs buckets
-            ProcessInventoryGridStep(self.host_api_client, self.esb_client, self.s3_manager),
+            # ProcessInventoryGridStep(self.host_api_client, self.esb_client, self.s3_manager),
             # Step 4: Process segments (optional)
             ProcessSegmentsStep(self.esb_client, self.s3_manager),
             # Step 5: Process StatDaily and convert to reservations (optional)

@@ -31,6 +31,7 @@ class FetchParametersStep(PipelineStep):
             context.last_import_date = parameters.get("lastImportDate")
             context.min_import_date = parameters.get("minImportDate")
             context.max_import_date = parameters.get("maxImportDate")
+            context.is_first_import = parameters.get("isFirstImport", False)
 
             self.logger.info(
                 "Fetched import parameters",
@@ -38,6 +39,7 @@ class FetchParametersStep(PipelineStep):
                 last_import_date=context.last_import_date,
                 min_import_date=context.min_import_date,
                 max_import_date=context.max_import_date,
+                is_first_import=context.is_first_import,
             )
 
             # Calculate date ranges based on ESB parameters

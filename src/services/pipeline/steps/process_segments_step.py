@@ -77,6 +77,7 @@ class ProcessSegmentsStep(PipelineStep):
                 file_url=processed_upload["url"],
                 file_key=processed_upload["key"],
                 record_count=total_segments,
+                is_first_import=context.is_first_import,
             )
 
             # Add SQS message

@@ -252,7 +252,7 @@ class ClimberESBClient:
                         )
 
                     # Handle success
-                    if response.status_code in (200, 201, 204):
+                    if response.status_code in (200, 201, 202, 204):
                         logger.debug(
                             "ESB request successful",
                             endpoint=endpoint,
@@ -425,6 +425,8 @@ class ClimberESBClient:
 
         # Get KpisRecordDateMax or calculate 2 years ago as fallback
         kpis_date = config_dict.get("KpisRecordDateMax")
+        is_first_import = False  # Track if this is the first import
+
         if kpis_date:
             last_import_date = kpis_date
             logger.info(
@@ -436,10 +438,12 @@ class ClimberESBClient:
             # Fallback: use 2 years ago
             two_years_ago = datetime.utcnow() - timedelta(days=730)
             last_import_date = two_years_ago.strftime("%Y-%m-%d")
+            is_first_import = True  # No KpisRecordDateMax means this is the first import
             logger.warning(
-                "KpisRecordDateMax not found, using 2 years ago as fallback",
+                "KpisRecordDateMax not found, using 2 years ago as fallback (first import)",
                 hotel_code=hotel_code,
                 fallback_date=last_import_date,
+                is_first_import=True,
             )
 
         # Return normalized format expected by the pipeline
@@ -448,6 +452,7 @@ class ClimberESBClient:
             "minImportDate": None,
             "maxImportDate": None,
             "hotelCode": hotel_code,
+            "isFirstImport": is_first_import,  # Flag to indicate first import
             "_raw_config": config_dict,  # Keep original config for reference
         }
 
@@ -467,15 +472,22 @@ class ClimberESBClient:
         file_url: str,
         file_key: str,
         record_count: int,
+        is_first_import: bool = False,
     ) -> dict[str, Any]:
         """Register an imported file with the ESB.
 
+        Routes to the correct ESB endpoint based on file type:
+        - segments -> /pms-integration/1.0/pmsSegment
+        - reservations -> /pms-integration/1.0/pmsReservation
+        - hotel-configs -> /pms-integration/1.0/pmsHotelConfig
+
         Args:
             hotel_code: The hotel code
-            file_type: Type of file (config, reservation, inventory, revenue)
+            file_type: Type of file (segments, reservations, hotel-configs)
             file_url: S3 URL or path to the processed file
             file_key: S3 object key for the processed file
             record_count: Number of records in the file
+            is_first_import: If True, sets complete=True (when KpisRecordDateMax was null/empty)
 
         Returns:
             Registration response from ESB
@@ -483,26 +495,61 @@ class ClimberESBClient:
         Raises:
             ESBClientError: If the registration fails
         """
+        from datetime import datetime
+
+        # Map file types to ESB endpoints
+        endpoint_map = {
+            "segments": "/pms-integration/1.0/pmsSegment",
+            "reservations": "/pms-integration/1.0/pmsReservation",
+            "hotel-configs": "/pms-integration/1.0/pmsHotelConfig",
+        }
+
+        endpoint = endpoint_map.get(file_type)
+        if not endpoint:
+            logger.error(
+                "Unknown file type for ESB registration",
+                hotel_code=hotel_code,
+                file_type=file_type,
+                valid_types=list(endpoint_map.keys()),
+            )
+            raise ESBClientError(
+                f"Unknown file type '{file_type}'. Valid types: {', '.join(endpoint_map.keys())}"
+            )
+
+        # Generate timestamp for record_date and last_updated
+        ts = datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "Z"
+
+        # Set complete flag: True if first import (KpisRecordDateMax was null/empty), False otherwise
+        complete = is_first_import
+
         logger.info(
             "Registering file with ESB",
             hotel_code=hotel_code,
             file_type=file_type,
+            endpoint=endpoint,
             record_count=record_count,
+            is_first_import=is_first_import,
+            complete=complete,
         )
+
+        # Build payload based on ESB requirements - wrapped in "payload" key
         payload = {
-            "hotelCode": hotel_code,
-            "fileType": file_type,
-            "fileUrl": file_url,
-            "fileKey": file_key,
-            "recordCount": record_count,
+            "payload": {
+                "code": hotel_code,
+                "record_date": ts,
+                "last_updated": ts,
+                "complete": complete,
+                "file": file_key,
+            }
         }
-        response = await self._make_request(
-            "POST", "/files/register", data=payload
-        )
+
+        response = await self._make_request("POST", endpoint, data=payload)
+
         logger.info(
             "Successfully registered file with ESB",
             hotel_code=hotel_code,
             file_type=file_type,
+            endpoint=endpoint,
             file_key=file_key,
         )
         return response

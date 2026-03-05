@@ -119,6 +119,7 @@ class ProcessInventoryGridStep(PipelineStep):
                     file_url=processed_upload["url"],
                     file_key=processed_upload["key"],
                     record_count=len(room_inventory_data.room_inventory),
+                    is_first_import=context.is_first_import,
                 )
 
                 # Add SQS message

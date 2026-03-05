@@ -175,10 +175,11 @@ class ProcessStatDailyStep(PipelineStep):
                 # Register with ESB
                 await self.esb_client.register_file(
                     hotel_code=context.hotel_code,
-                    file_type="reservation",
+                    file_type="reservations",
                     file_url=processed_upload["url"],
                     file_key=processed_upload["key"],
                     record_count=reservation_collection.total_count,
+                    is_first_import=context.is_first_import,
                 )
 
                 # Add SQS message

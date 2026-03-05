@@ -24,6 +24,7 @@ class PipelineContext:
         self.last_import_date: str | None = None
         self.min_import_date: str | None = None
         self.max_import_date: str | None = None
+        self.is_first_import: bool = False  # True if KpisRecordDateMax was null/empty
 
         # Calculated date ranges (based on ESB parameters)
         self.calculated_reservation_from_date: str | None = None

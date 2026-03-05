@@ -831,9 +831,9 @@ class HostPMSAPIClient:
 
         # Create tasks for all rate codes × all date chunks
         tasks = []
-        for rate_code in rate_codes:
-            for chunk_from, chunk_to in date_chunks:
-                tasks.append(fetch_inventory_for_rate_and_chunk(rate_code, chunk_from, chunk_to))
+        # for rate_code in rate_codes:
+            # for chunk_from, chunk_to in date_chunks:
+                # tasks.append(fetch_inventory_for_rate_and_chunk(rate_code, chunk_from, chunk_to))
 
         logger.info(
             "Fetching inventory data",
