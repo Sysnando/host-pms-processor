@@ -122,9 +122,6 @@ class ProcessInventoryGridStep(PipelineStep):
                     is_first_import=context.is_first_import,
                 )
 
-                # Add SQS message
-                context.add_sqs_message("inventory", processed_upload["key"])
-
                 # Store statistics
                 context.stats["inventory_grid"] = {
                     "item_count": len(room_inventories),

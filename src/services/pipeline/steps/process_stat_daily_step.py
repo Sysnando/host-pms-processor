@@ -182,9 +182,6 @@ class ProcessStatDailyStep(PipelineStep):
                     is_first_import=context.is_first_import,
                 )
 
-                # Add SQS message
-                context.add_sqs_message("reservations", processed_upload["key"])
-
                 # Update context
                 context.reservations_collection = reservation_collection
 

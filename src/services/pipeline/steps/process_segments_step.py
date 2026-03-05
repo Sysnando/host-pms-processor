@@ -80,9 +80,6 @@ class ProcessSegmentsStep(PipelineStep):
                 is_first_import=context.is_first_import,
             )
 
-            # Add SQS message
-            context.add_sqs_message("segments", processed_upload["key"])
-
             # Store statistics
             context.stats["segments"] = {
                 "total_segments": total_segments,

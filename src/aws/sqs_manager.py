@@ -122,12 +122,10 @@ class SQSManager:
             message_group_id=group_id,
         )
         try:
-            dedup_id = str(uuid.uuid4())
             response = self.sqs_client.send_message(
                 QueueUrl=url,
                 MessageBody=hotel_code_s3,
                 MessageGroupId=group_id,
-                MessageDeduplicationId=dedup_id,
             )
             mid = response["MessageId"]
             logger.info(

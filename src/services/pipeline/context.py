@@ -47,9 +47,6 @@ class PipelineContext:
         # S3 upload results
         self.s3_uploads: dict[str, dict[str, str]] = {}
 
-        # SQS messages to send
-        self.sqs_messages: list[dict[str, str]] = []
-
         # Processing statistics
         self.stats: dict[str, Any] = {}
 
@@ -81,19 +78,6 @@ class PipelineContext:
         """
         self.s3_uploads[data_type] = upload_result
 
-    def add_sqs_message(self, file_type: str, file_key: str) -> None:
-        """Add an SQS message to be sent.
-
-        Args:
-            file_type: Type of file (e.g., 'config', 'reservations')
-            file_key: S3 key of the file
-        """
-        self.sqs_messages.append({
-            "hotel_code": self.hotel_code,
-            "file_type": file_type,
-            "file_key": file_key,
-        })
-
     def has_errors(self) -> bool:
         """Check if any errors were encountered.
 
@@ -120,5 +104,4 @@ class PipelineContext:
             "errors": self.errors,
             "stats": self.stats,
             "s3_uploads": self.s3_uploads,
-            "sqs_messages": self.sqs_messages,
         }
