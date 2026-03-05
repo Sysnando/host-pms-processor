@@ -43,7 +43,7 @@ class ClimberESBSettings(BaseSettings):
     max_retries: int = 3
 
     # OAuth configuration
-    oauth_token_url: str = "/oauth/token"
+    oauth_token_url: str = "/oauth2/token"
     oauth_client_id: str = ""
     oauth_client_secret: str = ""
     oauth_grant_type: str = "client_credentials"
