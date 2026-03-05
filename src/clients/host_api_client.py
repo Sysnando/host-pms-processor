@@ -693,6 +693,9 @@ class HostPMSAPIClient:
         Extracts rate codes from config, then fetches inventory for each rate code
         in parallel with a maximum of 5 concurrent requests.
 
+        Automatically splits date ranges larger than 30 days into 30-day chunks
+        to comply with the InventoryGrid API's "Max days: 30" limitation.
+
         Args:
             config_response: Hotel configuration response (HotelConfigResponse or dict)
             from_date: Start date in ISO format (e.g., "2024-01-01")
@@ -705,6 +708,7 @@ class HostPMSAPIClient:
             HostAPIClientError: If the API requests fail
         """
         import asyncio
+        from datetime import datetime, timedelta
         from src.models.host.config import HotelConfigResponse
 
         # Convert dict to HotelConfigResponse if needed
@@ -731,6 +735,20 @@ class HostPMSAPIClient:
                 end_date=to_date,
             )
 
+        # Split date range into 30-day chunks
+        start_dt = datetime.fromisoformat(from_date.replace('Z', '+00:00') if 'Z' in from_date else from_date)
+        end_dt = datetime.fromisoformat(to_date.replace('Z', '+00:00') if 'Z' in to_date else to_date)
+
+        date_chunks = []
+        current_start = start_dt
+        while current_start < end_dt:
+            current_end = min(current_start + timedelta(days=30), end_dt)
+            date_chunks.append((
+                current_start.strftime("%Y-%m-%d"),
+                current_end.strftime("%Y-%m-%d")
+            ))
+            current_start = current_end + timedelta(days=1)
+
         logger.info(
             "Fetching inventory for all rate codes (ConfigType=RATECODE) in parallel",
             hotel_code=hotel_code,
@@ -738,25 +756,28 @@ class HostPMSAPIClient:
             rate_codes=rate_codes[:10] if len(rate_codes) > 10 else rate_codes,  # Log first 10 rate codes
             from_date=from_date,
             to_date=to_date,
+            date_chunks=len(date_chunks),
             max_concurrent=5,
         )
 
         # Create semaphore to limit concurrent requests to 5
         semaphore = asyncio.Semaphore(5)
 
-        async def fetch_inventory_for_rate(rate_code: str) -> dict[str, Any]:
-            """Fetch inventory for a single rate code with semaphore."""
+        async def fetch_inventory_for_rate_and_chunk(rate_code: str, chunk_from: str, chunk_to: str) -> dict[str, Any]:
+            """Fetch inventory for a single rate code and date chunk with semaphore."""
             async with semaphore:
                 try:
                     logger.debug(
-                        "Fetching inventory for rate code",
+                        "Fetching inventory for rate code and date chunk",
                         hotel_code=hotel_code,
                         rate_code=rate_code,
+                        chunk_from=chunk_from,
+                        chunk_to=chunk_to,
                     )
 
                     params: dict[str, Any] = {
-                        "fromDate": from_date,
-                        "toDate": to_date,
+                        "fromDate": chunk_from,
+                        "toDate": chunk_to,
                     }
                     if rate_code:
                         params["rateCode"] = rate_code
@@ -786,9 +807,11 @@ class HostPMSAPIClient:
                         item_count = 0
 
                     logger.debug(
-                        "Successfully fetched inventory for rate code",
+                        "Successfully fetched inventory for rate code and chunk",
                         hotel_code=hotel_code,
                         rate_code=rate_code,
+                        chunk_from=chunk_from,
+                        chunk_to=chunk_to,
                         item_count=item_count,
                     )
 
@@ -796,30 +819,45 @@ class HostPMSAPIClient:
 
                 except Exception as e:
                     logger.warning(
-                        "Failed to fetch inventory for rate code",
+                        "Failed to fetch inventory for rate code and chunk",
                         hotel_code=hotel_code,
                         rate_code=rate_code,
+                        chunk_from=chunk_from,
+                        chunk_to=chunk_to,
                         error=str(e),
                     )
-                    # Return empty response for failed rate codes
+                    # Return empty response for failed requests
                     return {"roomInventories": []}
 
-        # Fetch inventory for all rate codes in parallel
-        results = await asyncio.gather(
-            *[fetch_inventory_for_rate(rate_code) for rate_code in rate_codes],
-            return_exceptions=False
+        # Create tasks for all rate codes × all date chunks
+        tasks = []
+        for rate_code in rate_codes:
+            for chunk_from, chunk_to in date_chunks:
+                tasks.append(fetch_inventory_for_rate_and_chunk(rate_code, chunk_from, chunk_to))
+
+        logger.info(
+            "Fetching inventory data",
+            hotel_code=hotel_code,
+            total_requests=len(tasks),
+            rate_codes=len(rate_codes),
+            date_chunks=len(date_chunks),
         )
 
-        # Combine all room inventories from all rate codes
+        # Fetch inventory for all rate codes × date chunks in parallel
+        results = await asyncio.gather(*tasks, return_exceptions=False)
+
+        # Combine all room inventories from all requests
         all_room_inventories = []
         for result in results:
             if result and "roomInventories" in result:
                 all_room_inventories.extend(result["roomInventories"])
 
         logger.info(
-            "Successfully fetched inventory for all rate codes",
+            "Successfully fetched inventory for all rate codes and date chunks",
             hotel_code=hotel_code,
             rate_count=len(rate_codes),
+            date_chunks=len(date_chunks),
+            total_requests=len(tasks),
             total_items=len(all_room_inventories),
         )
 
