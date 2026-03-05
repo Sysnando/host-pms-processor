@@ -67,7 +67,7 @@ class HostPMSConnectorOrchestrator:
             # Uses calculated date ranges from FetchParametersStep
             ProcessStatDailyStep(self.host_api_client, self.esb_client, self.s3_manager),
             # Step 6: Update last import date (optional)
-            UpdateImportDateStep(self.esb_client),
+            # UpdateImportDateStep(self.esb_client),
             # Step 7: Send SQS notifications (optional)
             SendNotificationsStep(self.sqs_manager),
         ]
