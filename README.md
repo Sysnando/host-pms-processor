@@ -138,7 +138,7 @@ All configuration is managed through environment variables. See `.env.example` f
 
 ```bash
 # Environment
-ENVIRONMENT=dev|staging|prod
+ENVIRONMENT=qa|prod
 DEBUG=False
 
 # AWS

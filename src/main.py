@@ -17,8 +17,8 @@ async def main() -> int:
     If HOTEL_CODE_S3 is set in environment, processes only that hotel.
     Otherwise, processes all hotels configured in Climber ESB.
 
-    Note: HOTEL_CODE contains the Host API subscription key,
-    while HOTEL_CODE_S3 contains the actual Climber hotel code.
+    Note: HOTEL_CODE and HOTEL_CODE_S3 both contain hotel codes.
+    HOST_API_SUBSCRIPTION_KEY contains the subscription key for Host PMS API.
     """
     logger.info(
         "Starting Host PMS Connector",
