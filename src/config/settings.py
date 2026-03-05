@@ -107,6 +107,9 @@ class Settings(BaseSettings):
     hotel_code: str = ""
     hotel_code_s3: str = ""
 
+    # Testing flags
+    use_real_esb: bool = False  # USE_REAL_ESB - enable real ESB client in local tests
+
     # Sub-settings
     hotel: HotelSettings = HotelSettings()
     aws: AWSSettings = AWSSettings()

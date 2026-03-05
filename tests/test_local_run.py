@@ -2,19 +2,24 @@
 
 This script uses the LocalTestOrchestrator to test the full pipeline locally:
 - Fetches real data from Host PMS API
-- Saves files to data_extract directory instead of S3
-- Logs ESB registrations instead of calling API
+- Saves files to data_extracts directory instead of S3
+- Logs ESB registrations instead of calling API (or uses real ESB if USE_REAL_ESB=true)
 - Logs SQS messages instead of sending
 
 Usage:
-    # Process single hotel (saves to ./data_extract)
-    HOTEL_CODE=HOTEL001 python -m tests.test_local_run
-
-    # Process all hotels (from mocked ESB list)
+    # Mock ESB (default - no real API calls)
     python -m tests.test_local_run
 
-    # Specify custom output directory
-    OUTPUT_DIR=./my_output HOTEL_CODE=HOTEL001 python -m tests.test_local_run
+    # Real ESB with Redis + OAuth authentication
+    USE_REAL_ESB=true python -m tests.test_local_run
+
+    # Combined with hotel code and custom output
+    USE_REAL_ESB=true HOTEL_CODE_S3=QUATRO_VIAS_SA OUTPUT_DIR=./my_output python -m tests.test_local_run
+
+Environment Variables:
+    - USE_REAL_ESB: Set to 'true' to use real ESB client (default: false)
+    - HOTEL_CODE_S3: Climber hotel code to process (if not set, processes all hotels)
+    - OUTPUT_DIR: Directory to save files (default: ./data_extracts)
 """
 
 import asyncio
@@ -38,21 +43,26 @@ async def main() -> int:
     Returns:
         Exit code (0 for success, 1 for failure)
     """
-    # Get output directory from environment or use default
+    # Get configuration from environment
     output_dir = os.getenv("OUTPUT_DIR", "./data_extracts")
+    use_real_esb = os.getenv("USE_REAL_ESB", "false").lower() == "true"
 
     logger.info(
         "Starting Local Test Pipeline",
         environment=settings.environment,
         output_dir=output_dir,
+        use_real_esb=use_real_esb,
     )
 
     try:
-        # Create orchestrator with custom output directory
-        orchestrator = LocalTestOrchestrator(output_dir=output_dir)
+        # Create orchestrator with custom settings
+        orchestrator = LocalTestOrchestrator(
+            output_dir=output_dir,
+            use_real_esb=use_real_esb,
+        )
 
         # Check if specific hotel code is configured
-        hotel_code = (settings.hotel_code or settings.hotel.hotel_code or "").strip()
+        hotel_code = (settings.hotel_code_s3 or settings.hotel.hotel_code_s3 or "").strip()
 
         if hotel_code:
             # Single hotel mode
@@ -136,12 +146,24 @@ if __name__ == "__main__":
     # Configure logging
     configure_logging()
 
+    # Check if real ESB is enabled
+    use_real_esb = os.getenv("USE_REAL_ESB", "false").lower() == "true"
+
     # Print banner
     print("\n" + "=" * 80)
     print("HOST PMS CONNECTOR - LOCAL TEST MODE")
     print("=" * 80)
-    print("This test runs the full pipeline WITHOUT uploading to S3/ESB/SQS")
+    print("This test runs the full pipeline WITHOUT uploading to S3 or sending SQS")
     print("Files will be saved locally for inspection")
+    print("=" * 80)
+
+    if use_real_esb:
+        print("ESB Mode: REAL (Redis + OAuth authentication)")
+        print(f"ESB URL: {os.getenv('ESB_BASE_URL', 'from settings')}")
+        print(f"Redis: {os.getenv('REDIS_HOST', 'localhost')}:{os.getenv('REDIS_PORT', '6379')}")
+    else:
+        print("ESB Mode: MOCK (no real API calls)")
+
     print("=" * 80 + "\n")
 
     # Run main function and exit with returned code

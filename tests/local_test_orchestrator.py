@@ -4,14 +4,19 @@ This orchestrator extends HostPMSConnectorOrchestrator but replaces AWS and ESB
 clients with mock versions that log operations and save files locally.
 
 The real HostPMSAPIClient is still used to fetch actual data from Host PMS API.
+
+Optionally supports real ESB authentication (Redis + OAuth) for testing ESB integration.
 """
 
 from typing import Any
+
+from structlog import get_logger
 
 from src.aws.mock_s3_manager import MockS3Manager
 from src.aws.mock_sqs_manager import MockSQSManager
 from src.clients import HostPMSAPIClient
 from src.clients.mock_esb_client import MockClimberESBClient
+from src.config import settings
 from src.services.orchestration_service import HostPMSConnectorOrchestrator
 from src.services.pipeline import Pipeline
 from src.services.pipeline.steps import (
@@ -24,29 +29,48 @@ from src.services.pipeline.steps import (
     UpdateImportDateStep,
 )
 
+logger = get_logger(__name__)
+
 
 class LocalTestOrchestrator(HostPMSConnectorOrchestrator):
     """Test orchestrator that uses mock AWS/ESB clients for local testing.
 
     This allows running the full pipeline locally without:
     - S3 uploads (files saved to local directory instead)
-    - ESB API calls (mocked with test data)
+    - ESB API calls (can be mocked or real based on use_real_esb flag)
     - SQS messages (logged instead of sent)
 
     The HostPMSAPIClient is still real, so it fetches actual data from Host PMS.
+
+    When use_real_esb=True, uses real ClimberESBClient with Redis + OAuth authentication.
     """
 
-    def __init__(self, output_dir: str = "./data_extracts"):
+    def __init__(self, output_dir: str = "./data_extracts", use_real_esb: bool = False):
         """Initialize the local test orchestrator with mock clients.
 
         Args:
-            output_dir: Directory to save output files (default: ./data_extract)
+            output_dir: Directory to save output files (default: ./data_extracts)
+            use_real_esb: If True, use real ESB client with Redis + OAuth (default: False)
         """
         # Don't call super().__init__() - we want to replace the clients
         self.output_dir = output_dir
 
-        # Mock clients (log only, save files locally)
-        self.esb_client = MockClimberESBClient()
+        # Conditionally use real or mock ESB client
+        if use_real_esb or settings.use_real_esb:
+            from src.clients.esb_client import ClimberESBClient
+            self.esb_client = ClimberESBClient()
+            logger.info(
+                "Using REAL ClimberESBClient",
+                mode="real_esb",
+                redis_host=settings.redis.host,
+                redis_port=settings.redis.port,
+                esb_base_url=settings.esb.base_url,
+            )
+        else:
+            self.esb_client = MockClimberESBClient()
+            logger.info("Using MockClimberESBClient", mode="mock_esb")
+
+        # Mock S3 and SQS (always local for testing)
         self.s3_manager = MockS3Manager(output_dir=output_dir)
         self.sqs_manager = MockSQSManager(output_dir=output_dir)
 
