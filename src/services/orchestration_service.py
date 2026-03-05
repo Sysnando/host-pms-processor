@@ -11,11 +11,9 @@ from src.services.pipeline import Pipeline, PipelineContext
 from src.services.pipeline.steps import (
     FetchParametersStep,
     ProcessConfigStep,
-    ProcessInventoryGridStep,
     ProcessSegmentsStep,
     ProcessStatDailyStep,
-    SendNotificationsStep,
-    UpdateImportDateStep,
+    SendNotificationsStep
 )
 
 logger = get_logger(__name__)

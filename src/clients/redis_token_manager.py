@@ -207,15 +207,6 @@ class RedisTokenManager:
             token_data = response.json()
             access_token = token_data.get("access_token", "")
 
-            # FOR TESTING: Print token (remove in production!)
-            print(f"\n{'=' * 80}")
-            print("ESB OAUTH TOKEN (FOR TESTING ONLY)")
-            print(f"{'=' * 80}")
-            print(f"Access Token: {access_token}")
-            print(f"Expires In: {token_data.get('expires_in')} seconds")
-            print(f"Token Type: {token_data.get('token_type', 'Bearer')}")
-            print(f"{'=' * 80}\n")
-
             logger.info(
                 "Successfully fetched OAuth token",
                 expires_in=token_data.get("expires_in"),

@@ -22,11 +22,9 @@ from src.services.pipeline import Pipeline
 from src.services.pipeline.steps import (
     FetchParametersStep,
     ProcessConfigStep,
-    ProcessInventoryGridStep,
     ProcessSegmentsStep,
     ProcessStatDailyStep,
-    SendNotificationsStep,
-    UpdateImportDateStep,
+    SendNotificationsStep
 )
 
 logger = get_logger(__name__)
@@ -89,15 +87,15 @@ class LocalTestOrchestrator(HostPMSConnectorOrchestrator):
             # Step 2: Process hotel config (real API, no upload)
             ProcessConfigStep(self.host_api_client, self.esb_client, self.s3_manager),
             # Step 3: Process inventory grid (real API, mock S3/ESB)
-            ProcessInventoryGridStep(
-                self.host_api_client, self.esb_client, self.s3_manager
-            ),
+            #ProcessInventoryGridStep(
+            #    self.host_api_client, self.esb_client, self.s3_manager
+            #),
             # Step 4: Process segments (mock S3/ESB)
             ProcessSegmentsStep(self.esb_client, self.s3_manager),
             # Step 5: Process StatDaily (real API, mock S3/ESB)
             ProcessStatDailyStep(self.host_api_client, self.esb_client, self.s3_manager),
             # Step 6: Update last import date (mocked)
-            UpdateImportDateStep(self.esb_client),
+            # UpdateImportDateStep(self.esb_client),
             # Step 7: Send SQS notifications (mocked)
             SendNotificationsStep(self.sqs_manager),
         ]
