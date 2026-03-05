@@ -100,7 +100,7 @@ class LoggingSettings(BaseSettings):
 class Settings(BaseSettings):
     """Main application settings."""
 
-    environment: Literal["dev", "qa", "prod"] = "dev"
+    environment: Literal["qa", "prod"] = "qa"
     debug: bool = False
 
     # Single-hotel (Climber padrão): read from .env as HOTEL_CODE / HOTEL_CODE_S3

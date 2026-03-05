@@ -43,8 +43,9 @@ class HostPMSAPIClient:
         # Prefer top-level (from .env HOST_API_*); fallback to nested host_pms.*
         base = (settings.host_api_base_url or settings.host_pms.base_url or "").strip()
         self.base_url = (base or "https://hostapi.azure-api.net/rms-v2").rstrip("/")
+        # Subscription key priority: HOST_API_SUBSCRIPTION_KEY > HOTEL_CODE > host_pms.subscription_key
         self.subscription_key = (
-            (settings.host_api_subscription_key or settings.host_pms.subscription_key or "").strip()
+            (settings.host_api_subscription_key or settings.hotel_code or settings.hotel.hotel_code or settings.host_pms.subscription_key or "").strip()
             or "test-subscription-key-default"
         )
         self.timeout = settings.host_pms.request_timeout

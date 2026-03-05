@@ -14,8 +14,11 @@ logger = get_logger(__name__)
 async def main() -> int:
     """Main async function to run the ETL pipeline.
 
-    If HOTEL_CODE is set in environment, processes only that hotel.
+    If HOTEL_CODE_S3 is set in environment, processes only that hotel.
     Otherwise, processes all hotels configured in Climber ESB.
+
+    Note: HOTEL_CODE contains the Host API subscription key,
+    while HOTEL_CODE_S3 contains the actual Climber hotel code.
     """
     logger.info(
         "Starting Host PMS Connector",
@@ -25,17 +28,17 @@ async def main() -> int:
     try:
         orchestrator = HostPMSConnectorOrchestrator()
 
-        # Check if specific hotel code is configured
-        hotel_code = (settings.hotel_code or settings.hotel.hotel_code or "").strip()
+        # Check if specific hotel code is configured (use hotel_code_s3 for Climber ESB)
+        hotel_code_s3 = (settings.hotel_code_s3 or settings.hotel.hotel_code_s3 or "").strip()
 
-        if hotel_code:
+        if hotel_code_s3:
             # Single hotel mode
-            logger.info("Processing single hotel from settings", hotel_code=hotel_code)
-            result = await orchestrator.process_hotel(hotel_code)
+            logger.info("Processing single hotel from settings", hotel_code=hotel_code_s3)
+            result = await orchestrator.process_hotel(hotel_code_s3)
 
             logger.info(
                 "ETL pipeline complete",
-                hotel_code=hotel_code,
+                hotel_code=hotel_code_s3,
                 success=result["success"],
             )
 
@@ -102,12 +105,12 @@ async def lambda_handler(event: dict[str, Any], context: Any) -> dict[str, Any]:
         # Create orchestrator
         orchestrator = HostPMSConnectorOrchestrator()
 
-        # Check if specific hotel code is provided
-        hotel_code = event.get("hotelCode") or event.get("hotel_code")
+        # Check if specific hotel code is provided (use hotel_code_s3 for Climber ESB)
+        hotel_code_s3 = event.get("hotelCodeS3") or event.get("hotel_code_s3")
 
-        if hotel_code:
-            logger.info("Processing single hotel", hotel_code=hotel_code)
-            result = await orchestrator.process_hotel(hotel_code)
+        if hotel_code_s3:
+            logger.info("Processing single hotel", hotel_code=hotel_code_s3)
+            result = await orchestrator.process_hotel(hotel_code_s3)
             success = result["success"]
         else:
             logger.info("Processing all hotels")
