@@ -164,11 +164,11 @@ class ProcessStatDailyStep(PipelineStep):
                     config_response=context.config_response,
                 )
 
-                # Upload processed reservations
+                # Upload processed reservations (as plain array, not wrapped in object)
                 processed_upload = self.s3_manager.upload_processed(
                     hotel_code=context.hotel_code,
                     data_type="reservations",
-                    data=reservation_collection,
+                    data=reservation_collection.reservations,  # Upload list directly, not wrapped
                 )
                 context.add_s3_upload("reservations_processed", processed_upload)
 
