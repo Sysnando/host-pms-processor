@@ -20,6 +20,7 @@ class ConfigTransformer:
         """Convert a ConfigItem to a SegmentItem matching Climber format.
 
         Maps Host PMS configuration to Climber segment with occupancy and revenue flags.
+        Both name and code are mapped to the item code for consistency.
 
         Args:
             item: ConfigItem from Host PMS API
@@ -32,7 +33,7 @@ class ConfigTransformer:
 
         return SegmentItem(
             code=item.code,
-            name=item.description,
+            name=item.code,  # Map name to code instead of description
             enabled_otb=enabled,
             enabled_revenue=enabled,
             position=9999,  # Default position
