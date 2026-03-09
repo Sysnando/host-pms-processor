@@ -194,25 +194,6 @@ class StatDailyToReservationTransformer:
         return default
 
     @staticmethod
-    def _extract_package_code(pack: Optional[str]) -> str:
-        """Extract package code from Pack field.
-
-        Pack format: "AP|RO" or "APA|BB" - extract first part before |
-
-        Args:
-            pack: Pack field from StatDaily
-
-        Returns:
-            Package code or "UNASSIGNED"
-        """
-        if pack and pack.strip():
-            # Take first part before |
-            parts = pack.split("|")
-            if parts:
-                return parts[0].strip()
-        return "UNASSIGNED"
-
-    @staticmethod
     def _transform_group_to_reservation(
         records: list[StatDailyRecord],
         hotel_code: str,
@@ -364,7 +345,7 @@ class StatDailyToReservationTransformer:
         group_code = StatDailyToReservationTransformer._get_segment_code(
             base_record.groupname
         )
-        package_code = StatDailyToReservationTransformer._extract_package_code(
+        package_code = StatDailyToReservationTransformer._get_segment_code(
             base_record.pack
         )
         rate_code = StatDailyToReservationTransformer._get_segment_code(
