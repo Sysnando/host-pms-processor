@@ -58,18 +58,28 @@ class ProcessConfigStep(PipelineStep):
 
             # Extract room inventory from config (CATEGORY items with Inventory field)
             # This replaces the deprecated InventoryGrid API call
-            self.logger.info(
-                "Extracting room inventory from config",
-                hotel_code=context.hotel_code,
-            )
+            # Use calculated_stat_daily_start to align inventory with reservation data range
+            # Fallback to calculated_inventory_from if stat_daily_start is not available
+            inventory_from_date = context.calculated_stat_daily_start or context.calculated_inventory_from
 
-            from datetime import datetime
-            execution_date = datetime.utcnow().date()
+            if not inventory_from_date:
+                self.logger.warning(
+                    "No calculated date available for inventory, skipping inventory extraction",
+                    hotel_code=context.hotel_code,
+                )
+                context.room_inventory = None
+            else:
+                self.logger.info(
+                    "Extracting room inventory from config",
+                    hotel_code=context.hotel_code,
+                    inventory_from=inventory_from_date,
+                    source="calculated_stat_daily_start" if context.calculated_stat_daily_start else "calculated_inventory_from",
+                )
 
-            context.room_inventory = ConfigTransformer.get_room_inventory(
-                context.config_response,
-                execution_date=execution_date,
-            )
+                context.room_inventory = ConfigTransformer.get_room_inventory(
+                    context.config_response,
+                    execution_date=inventory_from_date,
+                )
 
             # Upload raw config data
             if context.config_response:
