@@ -31,7 +31,8 @@ class FetchParametersStep(PipelineStep):
             context.last_import_date = parameters.get("lastImportDate")
             context.min_import_date = parameters.get("minImportDate")
             context.max_import_date = parameters.get("maxImportDate")
-            context.is_first_import = parameters.get("isFirstImport", False)
+            # Set is_first_import based on whether lastImportDate is null/empty
+            context.is_first_import = not context.last_import_date
 
             self.logger.info(
                 "Fetched import parameters",
