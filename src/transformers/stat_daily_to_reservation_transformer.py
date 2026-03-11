@@ -200,7 +200,6 @@ class StatDailyToReservationTransformer:
         hotel_local_time: Optional[datetime] = None,
         room_charge_codes: Optional[set[str]] = None,
         is_first_import: bool = False,
-        calculated_stat_daily_start: Optional[str] = None,
     ) -> Optional[ClimberReservation]:
         """Transform a group of StatDaily records into a single ClimberReservation.
 
@@ -209,8 +208,7 @@ class StatDailyToReservationTransformer:
             hotel_code: Hotel code
             hotel_local_time: Hotel local time for record_date calculation
             room_charge_codes: Set of charge codes to treat as room revenue (from hotel config)
-            is_first_import: Whether this is a first import
-            calculated_stat_daily_start: Start date from ESB calculation for record_date
+            is_first_import: Whether this is a first import (uses CreatedOn for record_date)
 
         Returns:
             ClimberReservation object or None if transformation fails
@@ -256,15 +254,11 @@ class StatDailyToReservationTransformer:
         )
 
         # Calculate record_date (PostgreSQL date range format)
-        # If first import: use calculated_stat_daily_start
-        # Otherwise: use execution date/time
-        if is_first_import and calculated_stat_daily_start:
-            # First import: use the calculated start date from ESB
-            # Handle both date objects and ISO strings
-            if isinstance(calculated_stat_daily_start, str):
-                record_date_str = calculated_stat_daily_start.split("T")[0]
-            else:
-                record_date_str = calculated_stat_daily_start.isoformat()
+        # If first import: use CreatedOn date from reservation
+        # Otherwise: use current execution date
+        if is_first_import:
+            # First import: use created_date from the reservation
+            record_date_str = created_date
         else:
             # Regular import: use current execution time
             execution_date = hotel_local_time.date() if hotel_local_time else datetime.now().date()
@@ -415,7 +409,6 @@ class StatDailyToReservationTransformer:
         hotel_local_time: Optional[datetime] = None,
         config_response: HotelConfigResponse | dict[str, Any] | None = None,
         is_first_import: bool = False,
-        calculated_stat_daily_start: Optional[str] = None,
     ) -> ReservationCollection:
         """Transform batch of StatDaily records into ReservationCollection.
 
@@ -431,8 +424,7 @@ class StatDailyToReservationTransformer:
             hotel_code: Hotel code
             hotel_local_time: Hotel local time for record_date calculation
             config_response: Hotel configuration for extracting charge codes
-            is_first_import: Whether this is a first import
-            calculated_stat_daily_start: Start date from ESB calculation for record_date
+            is_first_import: Whether this is a first import (uses CreatedOn for record_date)
 
         Returns:
             ReservationCollection with transformed reservations
@@ -476,7 +468,6 @@ class StatDailyToReservationTransformer:
                 hotel_local_time=hotel_local_time,
                 room_charge_codes=room_charge_codes,
                 is_first_import=is_first_import,
-                calculated_stat_daily_start=calculated_stat_daily_start,
             )
 
             if reservation:

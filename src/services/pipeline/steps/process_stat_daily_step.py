@@ -161,7 +161,6 @@ class ProcessStatDailyStep(PipelineStep):
             hotel_local_time=hotel_local_time,
             config_response=context.config_response,
             is_first_import=context.is_first_import,
-            calculated_stat_daily_start=context.calculated_stat_daily_start,
         )
 
         # Upload processed reservations
