@@ -60,19 +60,19 @@ class S3Manager:
             JSON string
         """
         if isinstance(data, BaseModel):
-            return data.model_dump_json(by_alias=True, indent=2)
+            return data.model_dump_json(by_alias=True)
         elif isinstance(data, list):
             # Check if list contains Pydantic models
             if data and isinstance(data[0], BaseModel):
                 # Convert list of Pydantic models to list of dicts
                 serialized_list = [item.model_dump(by_alias=True) for item in data]
-                return json.dumps(serialized_list, indent=2, default=str)
+                return json.dumps(serialized_list, default=str)
             else:
-                return json.dumps(data, indent=2, default=str)
+                return json.dumps(data, default=str)
         elif isinstance(data, dict):
-            return json.dumps(data, indent=2, default=str)
+            return json.dumps(data, default=str)
         else:
-            return json.dumps({"data": str(data)}, indent=2)
+            return json.dumps({"data": str(data)})
 
     def upload_raw(
         self,
