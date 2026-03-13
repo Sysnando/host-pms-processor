@@ -382,6 +382,47 @@ class ClimberESBClient:
         logger.info("Successfully fetched hotels from ESB", hotel_count=len(hotels))
         return hotels
 
+    async def get_integration(self, integration_type: str) -> list[dict[str, Any]]:
+        """Fetch hotels from ESB getIntegration endpoint with credentials.
+
+        This endpoint returns the list of hotels configured for a specific
+        integration type along with their authentication credentials.
+
+        Args:
+            integration_type: Integration type identifier (e.g., "BITZ")
+
+        Returns:
+            List of hotel dictionaries with fields:
+            - code: Hotel code
+            - auth_id: Authentication ID (used as Ocp-Apim-Subscription-Key)
+            - auth_username: Authentication username
+            - hotel_id: Hotel ID
+            - auth_password: Authentication password
+            - integration_type: Integration type
+
+        Raises:
+            ESBClientError: If the API request fails
+        """
+        logger.info(
+            "Fetching hotel list from getIntegration endpoint",
+            integration_type=integration_type,
+        )
+        response = await self._make_request(
+            "GET",
+            "/pms-integration/1.0/getIntegration",
+            params={"integration": integration_type},
+        )
+
+        # Extract hotel_list from result
+        hotel_list = response.get("result", {}).get("hotel_list", [])
+
+        logger.info(
+            "Successfully fetched hotels from getIntegration",
+            integration_type=integration_type,
+            hotel_count=len(hotel_list),
+        )
+        return hotel_list
+
     async def get_hotel_parameters(self, hotel_code: str) -> dict[str, Any]:
         """Fetch hotel configuration from ESB getHotelConfig endpoint.
 

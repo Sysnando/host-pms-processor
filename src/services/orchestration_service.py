@@ -1,7 +1,7 @@
 """Main orchestrator service for the Host PMS connector ETL pipeline."""
 
 from datetime import datetime
-from typing import Any
+from typing import Any, Optional
 
 from structlog import get_logger
 
@@ -35,12 +35,14 @@ class HostPMSConnectorOrchestrator:
     def __init__(self):
         """Initialize the orchestrator with all required services."""
         self.esb_client = ClimberESBClient()
-        self.host_api_client = HostPMSAPIClient()
         self.s3_manager = S3Manager()
         self.sqs_manager = SQSManager()
 
-    def _build_pipeline(self) -> Pipeline:
+    def _build_pipeline(self, host_api_client: HostPMSAPIClient) -> Pipeline:
         """Build the ETL pipeline with all processing steps.
+
+        Args:
+            host_api_client: Host PMS API client with hotel-specific credentials
 
         Returns:
             Configured pipeline ready to execute
@@ -53,17 +55,17 @@ class HostPMSConnectorOrchestrator:
             # Step 2: Process hotel config (optional)
             # Extracts segments and room inventory from /Config endpoint
             # Inventory is extracted from CATEGORY items and uploaded to hotel-configs
-            ProcessConfigStep(self.host_api_client, self.esb_client, self.s3_manager),
+            ProcessConfigStep(host_api_client, self.esb_client, self.s3_manager),
             # Step 3: Process inventory grid from API (DEPRECATED)
             # ProcessInventoryGridStep is deprecated - inventory now comes from Config step
-            # ProcessInventoryGridStep(self.host_api_client, self.esb_client, self.s3_manager),
+            # ProcessInventoryGridStep(host_api_client, self.esb_client, self.s3_manager),
             # Step 4: Process segments (optional)
             ProcessSegmentsStep(self.esb_client, self.s3_manager),
             # Step 5: Process StatDaily and convert to reservations (optional)
             # This step replaces the old ProcessReservationsStep
             # StatDaily is the primary source for reservation data
             # Uses calculated date ranges from FetchParametersStep
-            ProcessStatDailyStep(self.host_api_client, self.esb_client, self.s3_manager),
+            ProcessStatDailyStep(host_api_client, self.esb_client, self.s3_manager),
             # Step 6: Update last import date (optional)
             # UpdateImportDateStep(self.esb_client),
             # Step 7: Send SQS notifications (optional)
@@ -75,6 +77,7 @@ class HostPMSConnectorOrchestrator:
     async def process_hotel(
         self,
         hotel_code: str,
+        host_api_client: Optional[HostPMSAPIClient] = None,
     ) -> dict[str, Any]:
         """Process a single hotel through the ETL pipeline.
 
@@ -84,6 +87,8 @@ class HostPMSConnectorOrchestrator:
 
         Args:
             hotel_code: Hotel code to process
+            host_api_client: Optional Host PMS API client with hotel-specific credentials.
+                           If not provided, credentials will be fetched from getIntegration.
 
         Returns:
             Dictionary with processing results and statistics
@@ -97,11 +102,75 @@ class HostPMSConnectorOrchestrator:
         )
 
         try:
+            # If no client provided, fetch credentials from getIntegration
+            if host_api_client is None:
+                logger.info(
+                    "No API client provided, fetching credentials from getIntegration",
+                    hotel_code=hotel_code,
+                )
+                hotels = await self.esb_client.get_integration("BITZ")
+                hotel_data = next((h for h in hotels if h.get("code") == hotel_code), None)
+
+                if not hotel_data:
+                    raise OrchestrationError(
+                        f"Hotel {hotel_code} not found in integration endpoint"
+                    )
+
+                subscription_key = hotel_data.get("auth_id")
+                if not subscription_key:
+                    raise OrchestrationError(
+                        f"No auth_id found for hotel {hotel_code}"
+                    )
+
+                logger.info(
+                    "Creating Host API client with hotel-specific credentials",
+                    hotel_code=hotel_code,
+                )
+                host_api_client = HostPMSAPIClient(subscription_key=subscription_key)
+
+            # Validate subscription key before running pipeline
+            logger.info(
+                "Validating subscription key with Host PMS API",
+                hotel_code=hotel_code,
+            )
+            try:
+                # Test credentials by fetching hotel config (lightweight call)
+                host_api_client.get_hotel_config(hotel_code)
+                logger.info(
+                    "Subscription key validated successfully",
+                    hotel_code=hotel_code,
+                )
+            except Exception as e:
+                from src.clients.host_api_client import HostAPIAuthenticationError
+
+                # Check if it's an authentication error
+                if isinstance(e, HostAPIAuthenticationError):
+                    logger.error(
+                        "Invalid subscription key - skipping hotel",
+                        hotel_code=hotel_code,
+                        error=str(e),
+                    )
+                    return {
+                        "hotel_code": hotel_code,
+                        "success": False,
+                        "errors": [{
+                            "step": "authentication",
+                            "message": f"Invalid subscription key for hotel {hotel_code}. Authentication failed with Host PMS API. Hotel skipped. Please verify credentials in ESB getIntegration endpoint.",
+                            "error_type": "AUTHENTICATION_FAILED"
+                        }],
+                        "stats": {},
+                        "s3_uploads": {},
+                        "sqs_messages": [],
+                    }
+                else:
+                    # Re-raise non-auth errors (network issues, etc.)
+                    raise
+
             # Create pipeline context
             context = PipelineContext(hotel_code=hotel_code)
 
             # Build and execute pipeline
-            pipeline = self._build_pipeline()
+            pipeline = self._build_pipeline(host_api_client)
             context = await pipeline.execute(context)
 
             # Get results from context
@@ -132,46 +201,124 @@ class HostPMSConnectorOrchestrator:
                 "sqs_messages": [],
             }
 
-    async def process_all_hotels(self) -> dict[str, Any]:
+    async def process_single_hotel(
+        self,
+        hotel_code: str,
+        integration_type: str = "BITZ",
+    ) -> dict[str, Any]:
+        """Process a single hotel manually through the ETL pipeline.
+
+        This is a convenience method for manual single-hotel processing.
+        It fetches the hotel's credentials from getIntegration and processes it.
+
+        Args:
+            hotel_code: Hotel code to process
+            integration_type: Integration type to use (default: "BITZ")
+
+        Returns:
+            Dictionary with processing results and statistics
+
+        Raises:
+            OrchestrationError: If critical processing fails
+        """
+        logger.info(
+            "Starting manual single-hotel processing",
+            hotel_code=hotel_code,
+            integration_type=integration_type,
+        )
+
+        # process_hotel() will fetch credentials from getIntegration if no client provided
+        return await self.process_hotel(hotel_code)
+
+    async def process_all_hotels(self, integration_type: str = "BITZ") -> dict[str, Any]:
         """Process all configured hotels through the ETL pipeline.
+
+        Fetches hotels from the getIntegration endpoint and processes each
+        with hotel-specific credentials. Uses auth_id as the Ocp-Apim-Subscription-Key.
+
+        Args:
+            integration_type: Integration type to fetch (default: "BITZ")
 
         Returns:
             Dictionary with aggregated results for all hotels
         """
-        logger.info("Starting batch processing of all hotels")
+        logger.info(
+            "Starting batch processing of all hotels",
+            integration_type=integration_type,
+        )
 
         all_results = {
             "total_hotels": 0,
             "successful_hotels": 0,
             "failed_hotels": 0,
+            "authentication_failures": 0,
             "hotels": [],
             "start_time": datetime.utcnow().isoformat(),
         }
 
         try:
-            # Step 1: Get list of configured hotels from ESB
-            logger.info("Fetching hotel list from ESB")
-            hotels = await self.esb_client.get_hotels()
+            # Step 1: Get list of configured hotels from ESB getIntegration endpoint
+            logger.info(
+                "Fetching hotel list from getIntegration endpoint",
+                integration_type=integration_type,
+            )
+            hotels = await self.esb_client.get_integration(integration_type)
             all_results["total_hotels"] = len(hotels)
 
             logger.info("Successfully fetched hotels", hotel_count=len(hotels))
 
-            # Step 2: Process each hotel
+            # Step 2: Process each hotel with hotel-specific credentials
             for hotel in hotels:
-                hotel_code = hotel.get("code") or hotel.get("hotelCode")
+                hotel_code = hotel.get("code")
+                subscription_key = hotel.get("auth_id")
 
                 if not hotel_code:
                     logger.warning("Skipping hotel with no code", hotel=hotel)
                     continue
 
+                if not subscription_key:
+                    logger.warning(
+                        "Skipping hotel - no auth_id found, continuing with next hotel",
+                        hotel_code=hotel_code,
+                    )
+                    all_results["hotels"].append(
+                        {
+                            "hotel_code": hotel_code,
+                            "success": False,
+                            "errors": [{"step": "orchestrator", "message": "No auth_id found - skipped"}],
+                        }
+                    )
+                    all_results["failed_hotels"] += 1
+                    continue
+
                 try:
-                    result = await self.process_hotel(hotel_code)
+                    # Create hotel-specific API client
+                    logger.info(
+                        "Creating Host API client with hotel-specific credentials",
+                        hotel_code=hotel_code,
+                    )
+                    host_api_client = HostPMSAPIClient(subscription_key=subscription_key)
+
+                    # Process hotel with hotel-specific client
+                    result = await self.process_hotel(hotel_code, host_api_client)
                     all_results["hotels"].append(result)
 
                     if result["success"]:
                         all_results["successful_hotels"] += 1
                     else:
                         all_results["failed_hotels"] += 1
+
+                        # Track authentication failures separately
+                        if result.get("errors"):
+                            for error in result["errors"]:
+                                if error.get("error_type") == "AUTHENTICATION_FAILED":
+                                    all_results["authentication_failures"] += 1
+                                    logger.warning(
+                                        "Authentication failure - hotel skipped, continuing with next hotel",
+                                        hotel_code=hotel_code,
+                                        message=error.get("message"),
+                                    )
+                                    break
 
                 except Exception as e:
                     logger.error(
@@ -183,7 +330,7 @@ class HostPMSConnectorOrchestrator:
                         {
                             "hotel_code": hotel_code,
                             "success": False,
-                            "errors": [str(e)],
+                            "errors": [{"step": "orchestrator", "message": str(e)}],
                         }
                     )
                     all_results["failed_hotels"] += 1
@@ -195,6 +342,7 @@ class HostPMSConnectorOrchestrator:
                 total_hotels=all_results["total_hotels"],
                 successful=all_results["successful_hotels"],
                 failed=all_results["failed_hotels"],
+                authentication_failures=all_results["authentication_failures"],
             )
 
             return all_results

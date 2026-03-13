@@ -8,7 +8,7 @@ The real HostPMSAPIClient is still used to fetch actual data from Host PMS API.
 Optionally supports real ESB authentication (Redis + OAuth) for testing ESB integration.
 """
 
-from typing import Any
+from typing import Any, Optional
 
 from structlog import get_logger
 
@@ -72,28 +72,26 @@ class LocalTestOrchestrator(HostPMSConnectorOrchestrator):
         self.s3_manager = MockS3Manager(output_dir=output_dir)
         self.sqs_manager = MockSQSManager(output_dir=output_dir)
 
-        # Real client (fetches actual data from Host PMS)
-        self.host_api_client = HostPMSAPIClient()
-
-    def _build_pipeline(self) -> Pipeline:
+    def _build_pipeline(self, host_api_client: HostPMSAPIClient) -> Pipeline:
         """Build the ETL pipeline with all processing steps using mock clients.
+
+        Args:
+            host_api_client: Host PMS API client with hotel-specific credentials
 
         Returns:
             Configured pipeline ready to execute
         """
         steps = [
-            # Step 1: Fetch import parameters (mocked)
+            # Step 1: Fetch import parameters (mocked or real)
             FetchParametersStep(self.esb_client),
-            # Step 2: Process hotel config (real API, no upload)
-            ProcessConfigStep(self.host_api_client, self.esb_client, self.s3_manager),
-            # Step 3: Process inventory grid (real API, mock S3/ESB)
-            #ProcessInventoryGridStep(
-            #    self.host_api_client, self.esb_client, self.s3_manager
-            #),
+            # Step 2: Process hotel config (real API, mock S3)
+            ProcessConfigStep(host_api_client, self.esb_client, self.s3_manager),
+            # Step 3: Process inventory grid (DEPRECATED)
+            # ProcessInventoryGridStep(host_api_client, self.esb_client, self.s3_manager),
             # Step 4: Process segments (mock S3/ESB)
             ProcessSegmentsStep(self.esb_client, self.s3_manager),
             # Step 5: Process StatDaily (real API, mock S3/ESB)
-            ProcessStatDailyStep(self.host_api_client, self.esb_client, self.s3_manager),
+            ProcessStatDailyStep(host_api_client, self.esb_client, self.s3_manager),
             # Step 6: Update last import date (mocked)
             # UpdateImportDateStep(self.esb_client),
             # Step 7: Send SQS notifications (mocked)
@@ -102,11 +100,16 @@ class LocalTestOrchestrator(HostPMSConnectorOrchestrator):
 
         return Pipeline(name="LocalTestPipeline", steps=steps)
 
-    async def process_hotel(self, hotel_code: str) -> dict[str, Any]:
+    async def process_hotel(
+        self,
+        hotel_code: str,
+        host_api_client: HostPMSAPIClient = None,
+    ) -> dict[str, Any]:
         """Process a single hotel with hotel-specific output directory.
 
         Args:
             hotel_code: Hotel code to process
+            host_api_client: Optional Host PMS API client with hotel-specific credentials
 
         Returns:
             Dictionary with processing results and statistics
@@ -116,4 +119,4 @@ class LocalTestOrchestrator(HostPMSConnectorOrchestrator):
         self.sqs_manager.set_hotel_directory(hotel_dir)
 
         # Call parent process_hotel method
-        return await super().process_hotel(hotel_code)
+        return await super().process_hotel(hotel_code, host_api_client)

@@ -38,15 +38,26 @@ class HostAPIServerError(HostAPIClientError):
 class HostPMSAPIClient:
     """Client for Host PMS API endpoints."""
 
-    def __init__(self):
-        """Initialize the Host PMS API client with settings."""
+    def __init__(self, subscription_key: Optional[str] = None):
+        """Initialize the Host PMS API client with settings.
+
+        Args:
+            subscription_key: Optional hotel-specific subscription key.
+                            If not provided, uses default from settings.
+        """
         # Prefer top-level (from .env HOST_API_*); fallback to nested host_pms.*
         base = (settings.host_api_base_url or settings.host_pms.base_url or "").strip()
         self.base_url = (base or "https://hostapi.azure-api.net/rms-v2").rstrip("/")
-        self.subscription_key = (
-            (settings.host_api_subscription_key or settings.host_pms.subscription_key or "").strip()
-            or "test-subscription-key-default"
-        )
+
+        # Use provided subscription_key, otherwise fallback to settings
+        if subscription_key:
+            self.subscription_key = subscription_key
+        else:
+            self.subscription_key = (
+                (settings.host_api_subscription_key or settings.host_pms.subscription_key or "").strip()
+                or "test-subscription-key-default"
+            )
+
         self.timeout = settings.host_pms.request_timeout
         self.max_retries = settings.host_pms.max_retries
         self.retry_backoff_base = 2  # Exponential backoff base
