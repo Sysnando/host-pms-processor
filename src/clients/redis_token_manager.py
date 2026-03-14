@@ -214,6 +214,25 @@ class RedisTokenManager:
             )
             return token_data
 
+    async def clear_cache(self) -> None:
+        """Clear cached OAuth token from Redis.
+
+        This forces a fresh token to be fetched on the next request.
+        Useful at process start to avoid using stale cached tokens.
+        """
+        try:
+            deleted = await self.redis_client.delete(self.REDIS_KEY)
+            if deleted:
+                logger.info("Cleared cached OAuth token from Redis")
+            else:
+                logger.debug("No cached token to clear")
+        except Exception as e:
+            logger.warning(
+                "Failed to clear token cache (non-critical)",
+                error=str(e),
+            )
+            # Don't raise - this is a nice-to-have cleanup
+
     async def close(self) -> None:
         """Close Redis connection.
 

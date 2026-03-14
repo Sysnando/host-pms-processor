@@ -42,13 +42,13 @@ class ProcessStatDailyStep(PipelineStep):
         self.esb_client = esb_client
         self.s3_manager = s3_manager
 
-    def _create_date_chunks(self, start_date, end_date, months=4):
+    def _create_date_chunks(self, start_date, end_date, months=6):
         """Split date range into chunks of specified months for memory-efficient processing.
 
         Args:
             start_date: Start date of the range
             end_date: End date of the range
-            months: Number of months per chunk (default: 4)
+            months: Number of months per chunk (default: 6)
 
         Returns:
             List of tuples (chunk_start_date, chunk_end_date)
@@ -57,9 +57,9 @@ class ProcessStatDailyStep(PipelineStep):
         current_start = start_date
 
         while current_start <= end_date:
-            # Calculate chunk end (~4 months or 120 days)
+            # Calculate chunk end (~6 months or 180 days)
             current_end = min(
-                current_start + timedelta(days=120),
+                current_start + timedelta(days=180),
                 end_date
             )
             chunks.append((current_start, current_end))
@@ -106,7 +106,8 @@ class ProcessStatDailyStep(PipelineStep):
             try:
                 date_str = current_date.isoformat()
                 stat_daily_response = self.host_api_client.get_stat_daily(
-                    hotel_date_filter=date_str
+                    hotel_date_filter=date_str,
+                    hotel_code=context.hotel_code
                 )
 
                 if isinstance(stat_daily_response, list):
@@ -266,11 +267,11 @@ class ProcessStatDailyStep(PipelineStep):
 
             # Check if first import - use chunking to avoid memory issues
             if context.is_first_import:
-                # Break into 4-month chunks for memory efficiency
+                # Break into 6-month chunks for memory efficiency
                 date_chunks = self._create_date_chunks(start_date, end_date)
 
                 self.logger.info(
-                    "First import detected - breaking into 4-month chunks",
+                    "First import detected - breaking into 6-month chunks",
                     hotel_code=context.hotel_code,
                     total_chunks=len(date_chunks),
                     date_range=f"{start_date.isoformat()} to {end_date.isoformat()}",

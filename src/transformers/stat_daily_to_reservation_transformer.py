@@ -481,11 +481,11 @@ class StatDailyToReservationTransformer:
                     and reservation.revenue_room == 0
                     and reservation.revenue_room_invoice == 0
                 ):
-                    logger.debug(
-                        "Skipping reservation with all-zero values",
-                        res_id=reservation.reservation_id,
-                        hotel_date=reservation.calendar_date,
-                    )
+                    # logger.debug(
+                    #     "Skipping reservation with all-zero values",
+                    #     res_id=reservation.reservation_id,
+                    #     hotel_date=reservation.calendar_date,
+                    # )
                     continue
                 reservations.append(reservation)
             else:

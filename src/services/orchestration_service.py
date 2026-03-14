@@ -227,6 +227,9 @@ class HostPMSConnectorOrchestrator:
             integration_type=integration_type,
         )
 
+        # Clear Redis token cache at process start to ensure fresh tokens
+        await self.esb_client.clear_token_cache()
+
         # process_hotel() will fetch credentials from getIntegration if no client provided
         return await self.process_hotel(hotel_code)
 
@@ -247,6 +250,9 @@ class HostPMSConnectorOrchestrator:
             integration_type=integration_type,
         )
 
+        # Clear Redis token cache at process start to ensure fresh tokens
+        await self.esb_client.clear_token_cache()
+
         all_results = {
             "total_hotels": 0,
             "successful_hotels": 0,
@@ -266,6 +272,16 @@ class HostPMSConnectorOrchestrator:
             all_results["total_hotels"] = len(hotels)
 
             logger.info("Successfully fetched hotels", hotel_count=len(hotels))
+
+            # TEMP DEBUG: Print hotel credentials
+            print("\n" + "="*80)
+            print("DEBUG: getIntegration Response - Hotel Credentials")
+            print("="*80)
+            for hotel in hotels:
+                code = hotel.get("code", "N/A")
+                auth_id = hotel.get("auth_id", "N/A")
+                print(f"  Hotel Code: {code:15} | auth_id: {auth_id}")
+            print("="*80 + "\n")
 
             # Step 2: Process each hotel with hotel-specific credentials
             for hotel in hotels:

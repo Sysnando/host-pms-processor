@@ -114,22 +114,28 @@ class ClimberESBClient:
         else:
             url = f"{self.base_url}{endpoint}"
 
-        headers = await self._get_headers()
-
-        # Debug: Print request details
-        print(f"\n{'=' * 80}")
-        print("ESB REQUEST DEBUG")
-        print(f"{'=' * 80}")
-        print(f"Method: {method}")
-        print(f"URL: {url}")
-        if params:
-            print(f"Query Params: {params}")
-        print(f"Headers: {dict((k, v[:20] + '...' if k == 'Authorization' and len(v) > 20 else v) for k, v in headers.items())}")
-        if data:
-            print(f"Body: {data}")
-        print(f"{'=' * 80}\n")
+        # Track if we've already attempted token refresh for this request
+        token_refreshed = False
 
         for attempt in range(self.max_retries):
+            # Get fresh headers (important: do this inside the loop in case token was refreshed)
+            headers = await self._get_headers()
+
+            # Debug: Print request details
+            print(f"\n{'=' * 80}")
+            print("ESB REQUEST DEBUG")
+            print(f"{'=' * 80}")
+            print(f"Method: {method}")
+            print(f"URL: {url}")
+            if params:
+                print(f"Query Params: {params}")
+            print(f"Headers: {dict((k, v[:20] + '...' if k == 'Authorization' and len(v) > 20 else v) for k, v in headers.items())}")
+            if data:
+                print(f"Body: {data}")
+            print(f"Attempt: {attempt + 1}/{self.max_retries}")
+            if token_refreshed:
+                print("Token was refreshed - retrying with fresh token")
+            print(f"{'=' * 80}\n")
             try:
                 async with httpx.AsyncClient(timeout=self.timeout) as client:
                     response = await client.request(
@@ -140,29 +146,61 @@ class ClimberESBClient:
                         params=params,
                     )
 
-                    # Handle authentication errors
+                    # Handle authentication errors with automatic token refresh
                     if response.status_code == 401:
-                        # Print full URL for debugging
-                        print(f"\n{'=' * 80}")
-                        print("ESB REQUEST FAILED - AUTHENTICATION ERROR (401)")
-                        print(f"{'=' * 80}")
-                        print(f"Method: {method}")
-                        print(f"URL: {url}")
-                        if params:
-                            print(f"Query Params: {params}")
-                        print(f"Status Code: {response.status_code}")
-                        print(f"Response: {response.text}")
-                        print(f"{'=' * 80}\n")
+                        # If we haven't tried refreshing the token yet, do it now
+                        if not token_refreshed:
+                            print(f"\n{'=' * 80}")
+                            print("ESB REQUEST FAILED - AUTHENTICATION ERROR (401)")
+                            print("Attempting automatic token refresh...")
+                            print(f"{'=' * 80}")
+                            print(f"Method: {method}")
+                            print(f"URL: {url}")
+                            if params:
+                                print(f"Query Params: {params}")
+                            print(f"Status Code: {response.status_code}")
+                            print(f"Response: {response.text}")
+                            print(f"Action: Clearing cached token and retrying with fresh token")
+                            print(f"{'=' * 80}\n")
 
-                        logger.error(
-                            "ESB authentication failed",
-                            endpoint=endpoint,
-                            status_code=response.status_code,
-                            url=url,
-                        )
-                        raise ESBAuthenticationError(
-                            f"Authentication failed for {endpoint}: {response.text}"
-                        )
+                            logger.warning(
+                                "ESB authentication failed - clearing cached token and retrying",
+                                endpoint=endpoint,
+                                status_code=response.status_code,
+                                url=url,
+                            )
+
+                            # Clear the cached token from Redis
+                            await self.token_manager.clear_cache()
+
+                            # Set flag to prevent infinite retry loop
+                            token_refreshed = True
+
+                            # Continue to next iteration (retry with fresh token)
+                            continue
+                        else:
+                            # Token was already refreshed but still getting 401 - give up
+                            print(f"\n{'=' * 80}")
+                            print("ESB REQUEST FAILED - AUTHENTICATION ERROR (401) AFTER TOKEN REFRESH")
+                            print(f"{'=' * 80}")
+                            print(f"Method: {method}")
+                            print(f"URL: {url}")
+                            if params:
+                                print(f"Query Params: {params}")
+                            print(f"Status Code: {response.status_code}")
+                            print(f"Response: {response.text}")
+                            print(f"Note: Token was refreshed but authentication still failed")
+                            print(f"{'=' * 80}\n")
+
+                            logger.error(
+                                "ESB authentication failed even after token refresh",
+                                endpoint=endpoint,
+                                status_code=response.status_code,
+                                url=url,
+                            )
+                            raise ESBAuthenticationError(
+                                f"Authentication failed for {endpoint} even after token refresh: {response.text}"
+                            )
 
                     # Handle not found errors
                     if response.status_code == 404:
@@ -625,6 +663,15 @@ class ClimberESBClient:
             last_import_date=last_import_date,
         )
         return response
+
+    async def clear_token_cache(self) -> None:
+        """Clear cached OAuth token from Redis.
+
+        This forces a fresh token to be fetched on the next ESB API request.
+        Useful at process start to ensure we're not using stale cached tokens.
+        """
+        logger.info("Clearing ESB OAuth token cache")
+        await self.token_manager.clear_cache()
 
     async def get_hotel_credentials(self, hotel_code: str) -> dict[str, str]:
         """Fetch Host PMS API credentials for a specific hotel.
