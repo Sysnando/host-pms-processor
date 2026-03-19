@@ -68,6 +68,41 @@ class ProcessStatDailyStep(PipelineStep):
 
         return chunks
 
+    async def _fetch_date_async(
+        self,
+        date: any,
+        hotel_code: str,
+    ) -> list:
+        """Fetch StatDaily for a single date asynchronously.
+
+        Args:
+            date: Date to fetch
+            hotel_code: Hotel code for logging
+
+        Returns:
+            List of StatDaily records for the date, or empty list if fetch fails
+        """
+        try:
+            date_str = date.isoformat()
+            stat_daily_response = await self.host_api_client.get_stat_daily_async(
+                hotel_date_filter=date_str,
+                hotel_code=hotel_code
+            )
+
+            if isinstance(stat_daily_response, list):
+                return stat_daily_response
+            return []
+
+        except Exception as e:
+            self.logger.warning(
+                "Failed to fetch StatDaily for date",
+                hotel_code=hotel_code,
+                date=date.isoformat(),
+                error=str(e),
+            )
+            # Return empty list - continue with other dates even if one fails
+            return []
+
     async def _process_chunk(
         self,
         context: PipelineContext,
@@ -99,31 +134,37 @@ class ProcessStatDailyStep(PipelineStep):
             end_date=chunk_end.isoformat(),
         )
 
-        # Fetch StatDaily for this chunk
-        chunk_records = []
+        # Fetch StatDaily for this chunk in parallel
+        # Build list of all dates in the chunk
+        dates = []
         current_date = chunk_start
-
         while current_date <= chunk_end:
-            try:
-                date_str = current_date.isoformat()
-                stat_daily_response = await self.host_api_client.get_stat_daily_async(
-                    hotel_date_filter=date_str,
-                    hotel_code=context.hotel_code
-                )
-
-                if isinstance(stat_daily_response, list):
-                    chunk_records.extend(stat_daily_response)
-
-            except Exception as e:
-                self.logger.warning(
-                    "Failed to fetch StatDaily for date",
-                    hotel_code=context.hotel_code,
-                    date=current_date.isoformat(),
-                    error=str(e),
-                )
-                # Continue with other dates even if one fails
-
+            dates.append(current_date)
             current_date += timedelta(days=1)
+
+        self.logger.info(
+            f"Fetching StatDaily for {len(dates)} dates in parallel for {chunk_label}",
+            hotel_code=context.hotel_code,
+            date_count=len(dates),
+        )
+
+        # Create semaphore to limit concurrent date requests (10 at a time per hotel)
+        # This prevents overwhelming the API while still getting massive parallelization
+        date_semaphore = asyncio.Semaphore(10)
+
+        async def fetch_with_semaphore(date):
+            async with date_semaphore:
+                return await self._fetch_date_async(date, context.hotel_code)
+
+        # Fetch all dates in parallel (max 10 concurrent per hotel)
+        tasks = [fetch_with_semaphore(date) for date in dates]
+        results = await asyncio.gather(*tasks, return_exceptions=False)
+
+        # Combine all results
+        chunk_records = []
+        for date_records in results:
+            if date_records:  # Skip empty lists from failed fetches
+                chunk_records.extend(date_records)
 
         self.logger.info(
             f"Fetched StatDaily data for {chunk_label}",
