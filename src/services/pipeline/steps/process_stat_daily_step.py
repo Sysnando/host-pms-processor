@@ -5,6 +5,7 @@ from the Host PMS API and transforms them into Climber reservations using the
 StatDailyToReservationTransformer.
 """
 
+import asyncio
 from datetime import datetime, timedelta
 
 from src.aws import S3Manager
@@ -105,7 +106,7 @@ class ProcessStatDailyStep(PipelineStep):
         while current_date <= chunk_end:
             try:
                 date_str = current_date.isoformat()
-                stat_daily_response = self.host_api_client.get_stat_daily(
+                stat_daily_response = await self.host_api_client.get_stat_daily_async(
                     hotel_date_filter=date_str,
                     hotel_code=context.hotel_code
                 )

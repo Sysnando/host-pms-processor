@@ -1,5 +1,6 @@
 """Main orchestrator service for the Host PMS connector ETL pipeline."""
 
+import asyncio
 from datetime import datetime
 from typing import Any, Optional
 
@@ -233,11 +234,52 @@ class HostPMSConnectorOrchestrator:
         # process_hotel() will fetch credentials from getIntegration if no client provided
         return await self.process_hotel(hotel_code)
 
+    async def _process_hotel_with_semaphore(
+        self,
+        semaphore: asyncio.Semaphore,
+        hotel_code: str,
+        subscription_key: str,
+    ) -> dict[str, Any]:
+        """Process a single hotel with semaphore for concurrency control.
+
+        Args:
+            semaphore: Semaphore to limit concurrent processing
+            hotel_code: Hotel code to process
+            subscription_key: Hotel-specific subscription key (auth_id)
+
+        Returns:
+            Dictionary with processing results
+        """
+        async with semaphore:
+            try:
+                logger.info(
+                    "Creating Host API client with hotel-specific credentials",
+                    hotel_code=hotel_code,
+                )
+                host_api_client = HostPMSAPIClient(subscription_key=subscription_key)
+
+                # Process hotel with hotel-specific client
+                result = await self.process_hotel(hotel_code, host_api_client)
+                return result
+
+            except Exception as e:
+                logger.error(
+                    "Failed to process hotel",
+                    hotel_code=hotel_code,
+                    error=str(e),
+                )
+                return {
+                    "hotel_code": hotel_code,
+                    "success": False,
+                    "errors": [{"step": "orchestrator", "message": str(e)}],
+                }
+
     async def process_all_hotels(self, integration_type: str = "BITZ") -> dict[str, Any]:
-        """Process all configured hotels through the ETL pipeline.
+        """Process all configured hotels through the ETL pipeline in parallel.
 
         Fetches hotels from the getIntegration endpoint and processes each
-        with hotel-specific credentials. Uses auth_id as the Ocp-Apim-Subscription-Key.
+        with hotel-specific credentials in parallel (max 5 concurrent hotels).
+        Uses auth_id as the Ocp-Apim-Subscription-Key.
 
         Args:
             integration_type: Integration type to fetch (default: "BITZ")
@@ -283,7 +325,12 @@ class HostPMSConnectorOrchestrator:
                 print(f"  Hotel Code: {code:15} | auth_id: {auth_id}")
             print("="*80 + "\n")
 
-            # Step 2: Process each hotel with hotel-specific credentials
+            # Step 2: Process hotels in parallel with concurrency limit
+            # Create semaphore to limit concurrent processing to 5 hotels
+            semaphore = asyncio.Semaphore(5)
+
+            # Build list of tasks for valid hotels
+            tasks = []
             for hotel in hotels:
                 hotel_code = hotel.get("code")
                 subscription_key = hotel.get("auth_id")
@@ -307,49 +354,41 @@ class HostPMSConnectorOrchestrator:
                     all_results["failed_hotels"] += 1
                     continue
 
-                try:
-                    # Create hotel-specific API client
-                    logger.info(
-                        "Creating Host API client with hotel-specific credentials",
-                        hotel_code=hotel_code,
-                    )
-                    host_api_client = HostPMSAPIClient(subscription_key=subscription_key)
+                # Create task for this hotel
+                task = self._process_hotel_with_semaphore(
+                    semaphore, hotel_code, subscription_key
+                )
+                tasks.append(task)
 
-                    # Process hotel with hotel-specific client
-                    result = await self.process_hotel(hotel_code, host_api_client)
-                    all_results["hotels"].append(result)
+            # Process all hotels in parallel (max 5 concurrent)
+            logger.info(
+                "Starting parallel hotel processing",
+                total_tasks=len(tasks),
+                max_concurrent=5,
+            )
 
-                    if result["success"]:
-                        all_results["successful_hotels"] += 1
-                    else:
-                        all_results["failed_hotels"] += 1
+            results = await asyncio.gather(*tasks, return_exceptions=False)
 
-                        # Track authentication failures separately
-                        if result.get("errors"):
-                            for error in result["errors"]:
-                                if error.get("error_type") == "AUTHENTICATION_FAILED":
-                                    all_results["authentication_failures"] += 1
-                                    logger.warning(
-                                        "Authentication failure - hotel skipped, continuing with next hotel",
-                                        hotel_code=hotel_code,
-                                        message=error.get("message"),
-                                    )
-                                    break
+            # Aggregate results
+            for result in results:
+                all_results["hotels"].append(result)
 
-                except Exception as e:
-                    logger.error(
-                        "Failed to process hotel",
-                        hotel_code=hotel_code,
-                        error=str(e),
-                    )
-                    all_results["hotels"].append(
-                        {
-                            "hotel_code": hotel_code,
-                            "success": False,
-                            "errors": [{"step": "orchestrator", "message": str(e)}],
-                        }
-                    )
+                if result["success"]:
+                    all_results["successful_hotels"] += 1
+                else:
                     all_results["failed_hotels"] += 1
+
+                    # Track authentication failures separately
+                    if result.get("errors"):
+                        for error in result["errors"]:
+                            if error.get("error_type") == "AUTHENTICATION_FAILED":
+                                all_results["authentication_failures"] += 1
+                                logger.warning(
+                                    "Authentication failure - hotel skipped",
+                                    hotel_code=result.get("hotel_code"),
+                                    message=error.get("message"),
+                                )
+                                break
 
             all_results["end_time"] = datetime.utcnow().isoformat()
 

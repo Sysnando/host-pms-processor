@@ -924,7 +924,7 @@ class HostPMSAPIClient:
         hotel_date_filter: str,
         hotel_code: Optional[str] = None,
     ) -> dict[str, Any]:
-        """Fetch daily statistics from Host PMS API.
+        """Fetch daily statistics from Host PMS API (synchronous).
 
         Returns statistical data for a specific hotel date, including occupancy
         and revenue information. Multiple records may be returned for the same
@@ -939,6 +939,9 @@ class HostPMSAPIClient:
 
         Raises:
             HostAPIClientError: If the API request fails
+
+        Note:
+            This is the synchronous version. Use get_stat_daily_async() for async contexts.
         """
         logger.info(
             "Fetching StatDaily from Host PMS API",
@@ -961,6 +964,57 @@ class HostPMSAPIClient:
 
         logger.info(
             "Successfully fetched StatDaily",
+            hotel_code=hotel_code,
+            hotel_date_filter=hotel_date_filter,
+            record_count=record_count,
+        )
+        return response
+
+    async def get_stat_daily_async(
+        self,
+        hotel_date_filter: str,
+        hotel_code: Optional[str] = None,
+    ) -> dict[str, Any]:
+        """Fetch daily statistics from Host PMS API (asynchronous).
+
+        Returns statistical data for a specific hotel date, including occupancy
+        and revenue information. Multiple records may be returned for the same
+        reservation with different RecordTypes and ChargeCodes.
+
+        This is the async version that doesn't block the event loop, enabling
+        parallel processing of multiple hotels and dates.
+
+        Args:
+            hotel_date_filter: Date to fetch statistics for (ISO format: "YYYY-MM-DD")
+            hotel_code: Optional hotel code for logging context
+
+        Returns:
+            List of StatDaily records from the API response
+
+        Raises:
+            HostAPIClientError: If the API request fails
+        """
+        logger.info(
+            "Fetching StatDaily from Host PMS API (async)",
+            hotel_code=hotel_code,
+            hotel_date_filter=hotel_date_filter,
+        )
+        params = {
+            "hoteldatefilter": hotel_date_filter,
+        }
+
+        response = await self._make_request_async(
+            "GET", "/ExternalRms/StatDaily", params=params, hotel_code=hotel_code
+        )
+
+        # Response is a list of records
+        if isinstance(response, list):
+            record_count = len(response)
+        else:
+            record_count = 0
+
+        logger.info(
+            "Successfully fetched StatDaily (async)",
             hotel_code=hotel_code,
             hotel_date_filter=hotel_date_filter,
             record_count=record_count,
