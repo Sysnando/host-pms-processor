@@ -278,7 +278,7 @@ class HostPMSConnectorOrchestrator:
         """Process all configured hotels through the ETL pipeline in parallel.
 
         Fetches hotels from the getIntegration endpoint and processes each
-        with hotel-specific credentials in parallel (max 5 concurrent hotels).
+        with hotel-specific credentials in parallel (max 3 concurrent hotels).
         Uses auth_id as the Ocp-Apim-Subscription-Key.
 
         Args:
@@ -326,8 +326,9 @@ class HostPMSConnectorOrchestrator:
             print("="*80 + "\n")
 
             # Step 2: Process hotels in parallel with concurrency limit
-            # Create semaphore to limit concurrent processing to 5 hotels
-            semaphore = asyncio.Semaphore(5)
+            # Create semaphore to limit concurrent processing to 3 hotels
+            # This prevents overwhelming the API and hitting rate limits (max 60/sec)
+            semaphore = asyncio.Semaphore(3)
 
             # Build list of tasks for valid hotels
             tasks = []
@@ -360,11 +361,11 @@ class HostPMSConnectorOrchestrator:
                 )
                 tasks.append(task)
 
-            # Process all hotels in parallel (max 5 concurrent)
+            # Process all hotels in parallel (max 3 concurrent)
             logger.info(
                 "Starting parallel hotel processing",
                 total_tasks=len(tasks),
-                max_concurrent=5,
+                max_concurrent=3,
             )
 
             results = await asyncio.gather(*tasks, return_exceptions=False)
