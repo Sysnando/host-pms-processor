@@ -50,6 +50,30 @@ class ProcessConfigStep(PipelineStep):
                 context.hotel_code
             )
 
+            # Extract hotel local time from config for ESB registration
+            try:
+                from src.models.host.config import HotelConfigResponse
+
+                # Convert dict to HotelConfigResponse if needed
+                if isinstance(context.config_response, dict):
+                    config_model = HotelConfigResponse(**context.config_response)
+                else:
+                    config_model = context.config_response
+
+                context.hotel_local_time = config_model.hotel_info.local_time
+                if context.hotel_local_time:
+                    self.logger.info(
+                        "Extracted hotel local time from config",
+                        hotel_code=context.hotel_code,
+                        local_time=str(context.hotel_local_time),
+                    )
+            except Exception as e:
+                self.logger.warning(
+                    "Could not extract hotel local time from config",
+                    hotel_code=context.hotel_code,
+                    error=str(e),
+                )
+
             # Transform config to extract segments
             # Config data and segments are stored in context for other steps
             context.config_data, context.segments_collection = ConfigTransformer.transform(
@@ -107,6 +131,7 @@ class ProcessConfigStep(PipelineStep):
                     file_key=processed_upload["key"],
                     record_count=len(context.room_inventory.room_inventory),
                     is_first_import=context.is_first_import,
+                    hotel_local_time=context.hotel_local_time,
                 )
 
                 self.logger.info(

@@ -468,17 +468,18 @@ class ClimberESBClient:
         GET /pms-integration/1.0/getHotelConfig?code={hotel_code}
 
         The response contains hotel_config array with key-value pairs.
-        We extract KpisRecordDateMax to use as the lastImportDate.
+        We extract KpisCalculatedTime to use as the lastImportDate.
 
         Args:
             hotel_code: The hotel code identifier
 
         Returns:
             Dictionary containing normalized import parameters:
-            - lastImportDate: KpisRecordDateMax from config (or 2 years ago if not available)
+            - lastImportDate: KpisCalculatedTime from config (or 2 years ago if not available)
             - minImportDate: None
             - maxImportDate: None
             - hotelCode: The hotel code
+            - isFirstImport: True if KpisCalculatedTime is missing, False otherwise
             - _raw_config: Original config dict for reference
 
         Raises:
@@ -502,24 +503,24 @@ class ClimberESBClient:
         # Convert array of {key, value} objects to dict
         config_dict = {item["key"]: item["value"] for item in hotel_config_array}
 
-        # Get KpisRecordDateMax or calculate 2 years ago as fallback
-        kpis_date = config_dict.get("KpisRecordDateMax")
+        # Get KpisCalculatedTime or calculate 2 years ago as fallback
+        kpis_date = config_dict.get("KpisCalculatedTime")
         is_first_import = False  # Track if this is the first import
 
         if kpis_date:
             last_import_date = kpis_date
             logger.info(
-                "Using KpisRecordDateMax as lastImportDate",
+                "Using KpisCalculatedTime as lastImportDate",
                 hotel_code=hotel_code,
-                kpis_record_date_max=kpis_date,
+                kpis_calculated_time=kpis_date,
             )
         else:
             # Fallback: use 2 years ago
             two_years_ago = datetime.utcnow() - timedelta(days=730)
             last_import_date = two_years_ago.strftime("%Y-%m-%d")
-            is_first_import = True  # No KpisRecordDateMax means this is the first import
+            is_first_import = True  # No KpisCalculatedTime means this is the first import
             logger.warning(
-                "KpisRecordDateMax not found, using 2 years ago as fallback (first import)",
+                "KpisCalculatedTime not found, using 2 years ago as fallback (first import)",
                 hotel_code=hotel_code,
                 fallback_date=last_import_date,
                 is_first_import=True,
@@ -552,6 +553,7 @@ class ClimberESBClient:
         file_key: str,
         record_count: int,
         is_first_import: bool = False,
+        hotel_local_time: Optional[Any] = None,
     ) -> dict[str, Any]:
         """Register an imported file with the ESB.
 
@@ -567,6 +569,8 @@ class ClimberESBClient:
             file_key: S3 object key for the processed file
             record_count: Number of records in the file
             is_first_import: If True, sets complete=True (when KpisRecordDateMax was null/empty)
+            hotel_local_time: Hotel's local time (datetime) for record_date/last_updated.
+                            If not provided, falls back to UTC.
 
         Returns:
             Registration response from ESB
@@ -596,10 +600,12 @@ class ClimberESBClient:
             )
 
         # Generate timestamp for record_date and last_updated
-        ts = datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "Z"
-
-        # Set complete flag: True if first import (KpisRecordDateMax was null/empty), False otherwise
-        complete = is_first_import
+        # Use hotel local time if available, otherwise UTC
+        # Format: seconds only (no milliseconds)
+        if hotel_local_time:
+            ts = hotel_local_time.strftime("%Y-%m-%dT%H:%M:%SZ")
+        else:
+            ts = datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ")
 
         logger.info(
             "Registering file with ESB",
@@ -607,8 +613,9 @@ class ClimberESBClient:
             file_type=file_type,
             endpoint=endpoint,
             record_count=record_count,
-            is_first_import=is_first_import,
-            complete=complete,
+            complete=is_first_import,
+            timestamp=ts,
+            timestamp_source="hotel_local_time" if hotel_local_time else "utc",
         )
 
         # Build payload based on ESB requirements - wrapped in "payload" key
@@ -617,7 +624,8 @@ class ClimberESBClient:
                 "code": hotel_code,
                 "record_date": ts,
                 "last_updated": ts,
-                "complete": complete,
+                "complete": is_first_import,
+                "processed": False,  # Always false per API specification
                 "file": file_key,
             }
         }

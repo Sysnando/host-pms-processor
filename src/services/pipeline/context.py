@@ -38,6 +38,9 @@ class PipelineContext:
         self.reservations_response: dict[str, Any] | None = None
         self.stat_daily_records: list[dict[str, Any]] = []
 
+        # Hotel local time (extracted from config for ESB registration)
+        self.hotel_local_time: datetime | None = None
+
         # Transformed data
         self.config_data: Any = None
         self.segments_collection: Any = None

@@ -224,6 +224,7 @@ class ProcessStatDailyStep(PipelineStep):
             file_key=processed_upload["key"],
             record_count=reservation_collection.total_count,
             is_first_import=context.is_first_import,
+            hotel_local_time=context.hotel_local_time,
         )
 
         self.logger.info(

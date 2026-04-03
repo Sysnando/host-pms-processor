@@ -28,12 +28,11 @@ class FetchParametersStep(PipelineStep):
         """
         try:
             parameters = await self.esb_client.get_hotel_parameters(context.hotel_code)
-            # context.last_import_date = parameters.get("lastImportDate")
-            # context.last_import_date = '2026-03-15T00:00:00Z'  # For testing purposes, override last import date
+            context.last_import_date = parameters.get("lastImportDate")
             context.min_import_date = parameters.get("minImportDate")
             context.max_import_date = parameters.get("maxImportDate")
             # Set is_first_import based on whether lastImportDate is null/empty
-            context.is_first_import = not context.last_import_date
+            context.is_first_import = parameters.get("isFirstImport", False)
 
             self.logger.info(
                 "Fetched import parameters",

@@ -78,6 +78,7 @@ class ProcessSegmentsStep(PipelineStep):
                 file_key=processed_upload["key"],
                 record_count=total_segments,
                 is_first_import=context.is_first_import,
+                hotel_local_time=context.hotel_local_time,
             )
 
             # Store statistics
