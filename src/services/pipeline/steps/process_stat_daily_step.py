@@ -112,7 +112,10 @@ class ProcessStatDailyStep(PipelineStep):
         chunk_index: int = None,
         total_chunks: int = None,
     ) -> dict:
-        """Process a single date range chunk: fetch, transform, upload, register.
+        """Process a single date range chunk: fetch, transform, and upload.
+
+        Note: ESB file registration happens after ALL chunks are processed
+        to ensure only one SQS message is sent per hotel.
 
         Args:
             context: Pipeline context
@@ -123,7 +126,7 @@ class ProcessStatDailyStep(PipelineStep):
             total_chunks: Total number of chunks (for logging)
 
         Returns:
-            Dictionary with stats: {raw_count, reservation_count}
+            Dictionary with stats: {raw_count, reservation_count, processed_upload}
         """
         chunk_label = f"chunk {chunk_index}/{total_chunks}" if chunk_index else "full range"
 
@@ -216,16 +219,7 @@ class ProcessStatDailyStep(PipelineStep):
         upload_key = f"reservations_processed_{chunk_index}" if chunk_index else "reservations_processed"
         context.add_s3_upload(upload_key, processed_upload)
 
-        # Register with ESB
-        await self.esb_client.register_file(
-            hotel_code=context.hotel_code,
-            file_type="reservations",
-            file_url=processed_upload["url"],
-            file_key=processed_upload["key"],
-            record_count=reservation_collection.total_count,
-            is_first_import=context.is_first_import,
-            hotel_local_time=context.hotel_local_time,
-        )
+        # Note: ESB registration happens after all chunks are processed (see execute method)
 
         self.logger.info(
             f"Successfully processed {chunk_label}",
@@ -240,6 +234,7 @@ class ProcessStatDailyStep(PipelineStep):
             "reservation_count": len(reservation_collection.reservations),
             "chunk_records": chunk_records,  # Keep for context (last chunk only)
             "reservation_collection": reservation_collection,  # Keep for context (last chunk only)
+            "processed_upload": processed_upload,  # Keep for ESB registration (last chunk only)
         }
 
     async def execute(self, context: PipelineContext) -> bool:
@@ -359,6 +354,26 @@ class ProcessStatDailyStep(PipelineStep):
                     total_reservations=total_reservations,
                 )
 
+                # Register with ESB after ALL chunks are complete
+                # This ensures only ONE SQS message is sent per hotel
+                if last_chunk_result and last_chunk_result.get("processed_upload"):
+                    processed_upload = last_chunk_result["processed_upload"]
+                    await self.esb_client.register_file(
+                        hotel_code=context.hotel_code,
+                        file_type="reservations",
+                        file_url=processed_upload["url"],
+                        file_key=processed_upload["key"],
+                        record_count=total_reservations,
+                        is_first_import=context.is_first_import,
+                        hotel_local_time=context.hotel_local_time,
+                    )
+                    self.logger.info(
+                        "Registered reservations with ESB",
+                        hotel_code=context.hotel_code,
+                        total_reservations=total_reservations,
+                        file_key=processed_upload["key"],
+                    )
+
             else:
                 # Regular import - process entire range at once
                 chunk_result = await self._process_chunk(
@@ -377,6 +392,25 @@ class ProcessStatDailyStep(PipelineStep):
                     "raw_record_count": chunk_result["raw_count"],
                     "reservations_created": chunk_result["reservation_count"],
                 }
+
+                # Register with ESB after processing
+                if chunk_result.get("processed_upload"):
+                    processed_upload = chunk_result["processed_upload"]
+                    await self.esb_client.register_file(
+                        hotel_code=context.hotel_code,
+                        file_type="reservations",
+                        file_url=processed_upload["url"],
+                        file_key=processed_upload["key"],
+                        record_count=chunk_result["reservation_count"],
+                        is_first_import=context.is_first_import,
+                        hotel_local_time=context.hotel_local_time,
+                    )
+                    self.logger.info(
+                        "Registered reservations with ESB",
+                        hotel_code=context.hotel_code,
+                        reservations=chunk_result["reservation_count"],
+                        file_key=processed_upload["key"],
+                    )
 
             return True
 
