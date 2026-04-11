@@ -504,15 +504,14 @@ class ClimberESBClient:
         config_dict = {item["key"]: item["value"] for item in hotel_config_array}
 
         # Get KpisCalculatedTime or calculate 2 years ago as fallback
-        kpis_date = config_dict.get("KpisCalculatedTime")
+        last_import_date = config_dict.get("KpisCalculatedTime")
         is_first_import = False  # Track if this is the first import
 
-        if kpis_date:
-            last_import_date = kpis_date
+        if last_import_date:
             logger.info(
                 "Using KpisCalculatedTime as lastImportDate",
                 hotel_code=hotel_code,
-                kpis_calculated_time=kpis_date,
+                kpis_calculated_time=last_import_date,
             )
         else:
             # Fallback: use 2 years ago
