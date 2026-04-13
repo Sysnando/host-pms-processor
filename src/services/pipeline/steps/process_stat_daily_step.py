@@ -146,22 +146,22 @@ class ProcessStatDailyStep(PipelineStep):
             current_date += timedelta(days=1)
 
         self.logger.info(
-            f"Fetching StatDaily for {len(dates)} dates (max 3 concurrent) for {chunk_label}",
+            f"Fetching StatDaily for {len(dates)} dates (single thread) for {chunk_label}",
             hotel_code=context.hotel_code,
             date_count=len(dates),
         )
 
-        # Create semaphore to limit concurrent date requests (3 at a time per hotel)
-        # This prevents overwhelming the API and hitting rate limits (max 60/sec)
-        date_semaphore = asyncio.Semaphore(3)
-
-        async def fetch_with_semaphore(date):
-            async with date_semaphore:
-                return await self._fetch_date_async(date, context.hotel_code)
-
-        # Fetch all dates in parallel (max 3 concurrent per hotel)
-        tasks = [fetch_with_semaphore(date) for date in dates]
-        results = await asyncio.gather(*tasks, return_exceptions=False)
+        # Fetch dates sequentially (single thread) to stay under 200 req/min (~3.3 req/sec)
+        # 350ms delay between calls = ~2.85 req/sec, safely under the limit
+        MIN_DELAY = 0.35
+        results = []
+        for date in dates:
+            start_time = asyncio.get_event_loop().time()
+            result = await self._fetch_date_async(date, context.hotel_code)
+            results.append(result)
+            elapsed = asyncio.get_event_loop().time() - start_time
+            if elapsed < MIN_DELAY:
+                await asyncio.sleep(MIN_DELAY - elapsed)
 
         # Combine all results
         chunk_records = []

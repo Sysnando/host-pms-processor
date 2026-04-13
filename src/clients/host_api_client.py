@@ -1,7 +1,9 @@
 """Host PMS API client for data extraction."""
 
+import asyncio
+import re
 import time
-from typing import Any, Optional
+from typing import Any, Optional, Tuple
 
 import httpx
 from structlog import get_logger
@@ -35,6 +37,28 @@ class HostAPIServerError(HostAPIClientError):
     pass
 
 
+class HostAPIRateLimitError(HostAPIClientError):
+    """Raised when Host API rate limit is exceeded (429).
+
+    Attributes:
+        rate_limit: Parsed rate limit value (e.g., 200 for "200 per Minute")
+        time_window: Time window for rate limit (e.g., "Second", "Minute")
+        retry_after: Retry-After header value in seconds, or None
+    """
+
+    def __init__(
+        self,
+        message: str,
+        rate_limit: Optional[int] = None,
+        time_window: Optional[str] = None,
+        retry_after: Optional[float] = None,
+    ):
+        super().__init__(message)
+        self.rate_limit = rate_limit
+        self.time_window = time_window
+        self.retry_after = retry_after
+
+
 class HostPMSAPIClient:
     """Client for Host PMS API endpoints."""
 
@@ -61,6 +85,55 @@ class HostPMSAPIClient:
         self.timeout = settings.host_pms.request_timeout
         self.max_retries = settings.host_pms.max_retries
         self.retry_backoff_base = 2  # Exponential backoff base
+        self.rate_limit_max_retries = 10  # Max retries specifically for 429 responses
+
+    @staticmethod
+    def _parse_rate_limit_info(
+        response: httpx.Response,
+    ) -> Tuple[Optional[int], Optional[str], Optional[float]]:
+        """Parse rate limit information from API response headers and body.
+
+        Returns:
+            Tuple of (rate_limit, time_window, retry_after)
+        """
+        rate_limit = None
+        time_window = None
+        retry_after = None
+
+        # Parse rate limit from response body
+        try:
+            if response.text:
+                error_message = response.text
+                try:
+                    if response.headers.get("content-type", "").startswith("application/json"):
+                        error_data = response.json()
+                        if isinstance(error_data, dict):
+                            error_message = error_data.get("message", "") or error_data.get("error", "") or str(error_data)
+                except Exception:
+                    pass
+
+                # Parse "maximum admitted X per Y"
+                match = re.search(r'maximum admitted (\d+) per (\w+)', error_message, re.IGNORECASE)
+                if not match:
+                    match = re.search(r'(\d+) per (\w+)', error_message, re.IGNORECASE)
+                if match:
+                    rate_limit = int(match.group(1))
+                    time_window = match.group(2).capitalize()
+        except Exception as e:
+            logger.debug("Failed to parse rate limit from response body", error=str(e))
+
+        # Parse Retry-After header
+        retry_after_header = response.headers.get("Retry-After")
+        if retry_after_header:
+            try:
+                parsed_value = float(retry_after_header)
+                # Ignore values > 10000 (likely timestamps, not seconds)
+                if parsed_value <= 10000:
+                    retry_after = parsed_value
+            except ValueError:
+                logger.debug("Retry-After header is HTTP date format, using default delay")
+
+        return rate_limit, time_window, retry_after
 
     def _get_headers(self) -> dict[str, str]:
         """Get default headers for Host PMS API requests.
@@ -288,12 +361,13 @@ class HostPMSAPIClient:
             HostAPIServerError: If server error occurs
             HostAPIClientError: For other API errors
         """
-        import asyncio
-
         url = f"{self.base_url}{endpoint}"
         headers = self._get_headers()
+        rate_limit_attempts = 0
+        general_attempts = 0
 
-        for attempt in range(self.max_retries):
+        # Loop up to max_retries + rate_limit_max_retries to handle both error types
+        for _ in range(self.max_retries + self.rate_limit_max_retries):
             try:
                 async with httpx.AsyncClient(timeout=self.timeout) as client:
                     response = await client.request(
@@ -340,16 +414,52 @@ class HostPMSAPIClient:
                             f"Resource not found: {endpoint}"
                         )
 
+                    # Handle rate limit errors (429) with Retry-After
+                    if response.status_code == 429:
+                        rate_limit_attempts += 1
+                        rate_limit, time_window, retry_after = self._parse_rate_limit_info(response)
+
+                        # Use Retry-After header if present, otherwise exponential backoff
+                        if retry_after:
+                            wait_time = retry_after
+                        else:
+                            wait_time = min(60.0, 1.0 * (2 ** (rate_limit_attempts - 1)))
+
+                        wait_time = max(1.0, wait_time)
+
+                        logger.warning(
+                            f"[{hotel_code}] Host API rate limit exceeded, retrying",
+                            endpoint=endpoint,
+                            rate_limit=rate_limit,
+                            time_window=time_window,
+                            retry_after=retry_after,
+                            wait_seconds=wait_time,
+                            attempt=rate_limit_attempts,
+                            max_rate_limit_retries=self.rate_limit_max_retries,
+                        )
+
+                        if rate_limit_attempts >= self.rate_limit_max_retries:
+                            raise HostAPIRateLimitError(
+                                f"Rate limit exceeded at {endpoint}: {response.text}",
+                                rate_limit=rate_limit,
+                                time_window=time_window,
+                                retry_after=retry_after,
+                            )
+
+                        await asyncio.sleep(wait_time)
+                        continue
+
                     # Handle server errors with retry
                     if response.status_code >= 500:
-                        if attempt < self.max_retries - 1:
-                            wait_time = self.retry_backoff_base ** attempt
+                        general_attempts += 1
+                        if general_attempts < self.max_retries:
+                            wait_time = self.retry_backoff_base ** (general_attempts - 1)
                             logger.warning(
                                 "Host API server error, retrying",
                                 hotel_code=hotel_code,
                                 endpoint=endpoint,
                                 status_code=response.status_code,
-                                attempt=attempt + 1,
+                                attempt=general_attempts,
                                 max_retries=self.max_retries,
                                 wait_seconds=wait_time,
                             )
@@ -404,13 +514,14 @@ class HostPMSAPIClient:
                     )
 
             except httpx.TimeoutException as e:
-                if attempt < self.max_retries - 1:
-                    wait_time = self.retry_backoff_base ** attempt
+                general_attempts += 1
+                if general_attempts < self.max_retries:
+                    wait_time = self.retry_backoff_base ** (general_attempts - 1)
                     logger.warning(
                         "Host API request timeout, retrying",
                         hotel_code=hotel_code,
                         endpoint=endpoint,
-                        attempt=attempt + 1,
+                        attempt=general_attempts,
                         max_retries=self.max_retries,
                         wait_seconds=wait_time,
                     )
@@ -427,14 +538,15 @@ class HostPMSAPIClient:
                     ) from e
 
             except httpx.RequestError as e:
-                if attempt < self.max_retries - 1:
-                    wait_time = self.retry_backoff_base ** attempt
+                general_attempts += 1
+                if general_attempts < self.max_retries:
+                    wait_time = self.retry_backoff_base ** (general_attempts - 1)
                     logger.warning(
                         "Host API request error, retrying",
                         hotel_code=hotel_code,
                         endpoint=endpoint,
                         error=str(e),
-                        attempt=attempt + 1,
+                        attempt=general_attempts,
                         max_retries=self.max_retries,
                         wait_seconds=wait_time,
                     )
