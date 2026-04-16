@@ -81,7 +81,12 @@ class ProcessStatDailyStep(PipelineStep):
 
         Returns:
             List of StatDaily records for the date, or empty list if fetch fails
+
+        Raises:
+            HostAPIRateLimitError: Re-raised so callers can switch to sequential mode
         """
+        from src.clients.host_api_client import HostAPIRateLimitError
+
         try:
             date_str = date.isoformat()
             stat_daily_response = await self.host_api_client.get_stat_daily_async(
@@ -93,6 +98,9 @@ class ProcessStatDailyStep(PipelineStep):
                 return stat_daily_response
             return []
 
+        except HostAPIRateLimitError:
+            raise  # Let caller handle rate limit fallback
+
         except Exception as e:
             self.logger.warning(
                 "Failed to fetch StatDaily for date",
@@ -100,8 +108,77 @@ class ProcessStatDailyStep(PipelineStep):
                 date=date.isoformat(),
                 error=str(e),
             )
-            # Return empty list - continue with other dates even if one fails
             return []
+
+    async def _fetch_dates_sequential(self, dates: list, hotel_code: str) -> list:
+        """Fetch dates one at a time with throttling.
+
+        Args:
+            dates: List of dates to fetch
+            hotel_code: Hotel code for logging
+
+        Returns:
+            List of results (one per date)
+        """
+        MIN_DELAY = 0.35
+        results = []
+        for date in dates:
+            start_time = asyncio.get_event_loop().time()
+            result = await self._fetch_date_async(date, hotel_code)
+            results.append(result)
+            elapsed = asyncio.get_event_loop().time() - start_time
+            if elapsed < MIN_DELAY:
+                await asyncio.sleep(MIN_DELAY - elapsed)
+        return results
+
+    async def _fetch_dates_parallel(self, dates: list, hotel_code: str, concurrency: int) -> tuple[list, list]:
+        """Fetch dates in parallel. On rate limit, stop and return remaining dates.
+
+        Args:
+            dates: List of dates to fetch
+            hotel_code: Hotel code for logging
+            concurrency: Max concurrent requests
+
+        Returns:
+            Tuple of (results collected so far, remaining dates to fetch sequentially).
+            If no rate limit hit, remaining will be empty.
+        """
+        from src.clients.host_api_client import HostAPIRateLimitError
+
+        results = []
+        rate_limit_hit = asyncio.Event()
+        semaphore = asyncio.Semaphore(concurrency)
+        completed_indices = set()
+
+        async def fetch_with_semaphore(index: int, date):
+            if rate_limit_hit.is_set():
+                return None
+            async with semaphore:
+                if rate_limit_hit.is_set():
+                    return None
+                try:
+                    result = await self._fetch_date_async(date, hotel_code)
+                    completed_indices.add(index)
+                    return result
+                except HostAPIRateLimitError:
+                    rate_limit_hit.set()
+                    return None
+
+        tasks = [asyncio.create_task(fetch_with_semaphore(i, d)) for i, d in enumerate(dates)]
+
+        # Wait for all tasks to finish (they exit early if rate_limit_hit is set)
+        raw_results = await asyncio.gather(*tasks, return_exceptions=True)
+
+        for r in raw_results:
+            if isinstance(r, list):
+                results.append(r)
+            elif r is not None and isinstance(r, BaseException):
+                results.append([])
+
+        # Determine remaining dates (not completed)
+        remaining = [d for i, d in enumerate(dates) if i not in completed_indices]
+
+        return results, remaining
 
     async def _process_chunk(
         self,
@@ -155,26 +232,22 @@ class ProcessStatDailyStep(PipelineStep):
         )
 
         if concurrency == 1:
-            # Sequential throttled: 350ms min interval = ~2.85 req/sec, safely under 200/min
-            MIN_DELAY = 0.35
-            results = []
-            for date in dates:
-                start_time = asyncio.get_event_loop().time()
-                result = await self._fetch_date_async(date, context.hotel_code)
-                results.append(result)
-                elapsed = asyncio.get_event_loop().time() - start_time
-                if elapsed < MIN_DELAY:
-                    await asyncio.sleep(MIN_DELAY - elapsed)
+            results = await self._fetch_dates_sequential(dates, context.hotel_code)
         else:
-            # Parallel fetching with semaphore (forced via HOST_API_STAT_DAILY_CONCURRENCY)
-            semaphore = asyncio.Semaphore(concurrency)
+            results, remaining = await self._fetch_dates_parallel(
+                dates, context.hotel_code, concurrency
+            )
 
-            async def fetch_with_semaphore(date):
-                async with semaphore:
-                    return await self._fetch_date_async(date, context.hotel_code)
-
-            tasks = [fetch_with_semaphore(date) for date in dates]
-            results = await asyncio.gather(*tasks, return_exceptions=False)
+            if remaining:
+                self.logger.warning(
+                    f"Rate limit hit during parallel fetch, switching to sequential for {len(remaining)} remaining dates",
+                    hotel_code=context.hotel_code,
+                    remaining_dates=len(remaining),
+                )
+                sequential_results = await self._fetch_dates_sequential(
+                    remaining, context.hotel_code
+                )
+                results.extend(sequential_results)
 
         # Combine all results
         chunk_records = []
