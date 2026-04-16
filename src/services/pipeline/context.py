@@ -18,6 +18,7 @@ class PipelineContext:
             hotel_code: Hotel code being processed
         """
         self.hotel_code = hotel_code
+        self.worker_id: int | None = None
         self.start_time = datetime.utcnow()
 
         # Input parameters from ESB

@@ -110,8 +110,30 @@ class ProcessStatDailyStep(PipelineStep):
             )
             return []
 
-    async def _fetch_dates_sequential(self, dates: list, hotel_code: str) -> list:
-        """Fetch dates one at a time with throttling.
+    @staticmethod
+    def _concurrency_for_rows(max_rows: int) -> int:
+        """Determine concurrency level based on max rows returned by a single date.
+
+        Args:
+            max_rows: Maximum row count seen from any single date fetch
+
+        Returns:
+            Concurrency level (1, 2, 3, or 5)
+        """
+        if max_rows > 1000:
+            return 5
+        if max_rows > 500:
+            return 3
+        if max_rows > 50:
+            return 2
+        return 1
+
+    async def _fetch_dates_adaptive(self, dates: list, hotel_code: str) -> list:
+        """Fetch dates with adaptive concurrency that scales based on row counts.
+
+        Starts at concurrency=1 (sequential). After each date completes, checks
+        if the max rows seen so far warrants more concurrency. On rate limit,
+        falls back to sequential for the remaining dates.
 
         Args:
             dates: List of dates to fetch
@@ -120,65 +142,106 @@ class ProcessStatDailyStep(PipelineStep):
         Returns:
             List of results (one per date)
         """
-        MIN_DELAY = 0.35
-        results = []
-        for date in dates:
-            start_time = asyncio.get_event_loop().time()
-            result = await self._fetch_date_async(date, hotel_code)
-            results.append(result)
-            elapsed = asyncio.get_event_loop().time() - start_time
-            if elapsed < MIN_DELAY:
-                await asyncio.sleep(MIN_DELAY - elapsed)
-        return results
-
-    async def _fetch_dates_parallel(self, dates: list, hotel_code: str, concurrency: int) -> tuple[list, list]:
-        """Fetch dates in parallel. On rate limit, stop and return remaining dates.
-
-        Args:
-            dates: List of dates to fetch
-            hotel_code: Hotel code for logging
-            concurrency: Max concurrent requests
-
-        Returns:
-            Tuple of (results collected so far, remaining dates to fetch sequentially).
-            If no rate limit hit, remaining will be empty.
-        """
         from src.clients.host_api_client import HostAPIRateLimitError
 
         results = []
-        rate_limit_hit = asyncio.Event()
-        semaphore = asyncio.Semaphore(concurrency)
-        completed_indices = set()
+        max_rows_seen = 0
+        current_concurrency = 1
+        rate_limited = False
+        MIN_DELAY = 0.35
+        i = 0
 
-        async def fetch_with_semaphore(index: int, date):
-            if rate_limit_hit.is_set():
-                return None
-            async with semaphore:
-                if rate_limit_hit.is_set():
-                    return None
-                try:
-                    result = await self._fetch_date_async(date, hotel_code)
-                    completed_indices.add(index)
-                    return result
-                except HostAPIRateLimitError:
-                    rate_limit_hit.set()
-                    return None
+        while i < len(dates):
+            if rate_limited or current_concurrency == 1:
+                # Sequential with throttling
+                start_time = asyncio.get_event_loop().time()
+                result = await self._fetch_date_async(dates[i], hotel_code)
+                results.append(result)
+                row_count = len(result) if result else 0
+                if row_count > max_rows_seen:
+                    max_rows_seen = row_count
+                i += 1
 
-        tasks = [asyncio.create_task(fetch_with_semaphore(i, d)) for i, d in enumerate(dates)]
+                # Check if we should scale up (only if not rate limited)
+                if not rate_limited:
+                    new_concurrency = self._concurrency_for_rows(max_rows_seen)
+                    if new_concurrency > current_concurrency:
+                        current_concurrency = new_concurrency
+                        self.logger.info(
+                            f"Scaling concurrency to {current_concurrency} (max_rows={max_rows_seen})",
+                            hotel_code=hotel_code,
+                        )
+                        continue  # Skip delay, switch to parallel
 
-        # Wait for all tasks to finish (they exit early if rate_limit_hit is set)
-        raw_results = await asyncio.gather(*tasks, return_exceptions=True)
+                elapsed = asyncio.get_event_loop().time() - start_time
+                if elapsed < MIN_DELAY:
+                    await asyncio.sleep(MIN_DELAY - elapsed)
+            else:
+                # Parallel batch: take up to current_concurrency dates
+                batch = dates[i:i + current_concurrency]
+                semaphore = asyncio.Semaphore(current_concurrency)
+                batch_rate_limited = False
+                completed = {}  # index -> result
 
-        for r in raw_results:
-            if isinstance(r, list):
-                results.append(r)
-            elif r is not None and isinstance(r, BaseException):
-                results.append([])
+                async def fetch_one(idx, date):
+                    nonlocal batch_rate_limited
+                    if batch_rate_limited:
+                        return idx, None
+                    async with semaphore:
+                        if batch_rate_limited:
+                            return idx, None
+                        try:
+                            r = await self._fetch_date_async(date, hotel_code)
+                            return idx, r
+                        except HostAPIRateLimitError:
+                            batch_rate_limited = True
+                            return idx, None
 
-        # Determine remaining dates (not completed)
-        remaining = [d for i, d in enumerate(dates) if i not in completed_indices]
+                tasks = [fetch_one(j, d) for j, d in enumerate(batch)]
+                raw = await asyncio.gather(*tasks, return_exceptions=True)
 
-        return results, remaining
+                for item in raw:
+                    if isinstance(item, tuple):
+                        idx, r = item
+                        if r is not None:
+                            completed[idx] = r
+                            row_count = len(r) if r else 0
+                            if row_count > max_rows_seen:
+                                max_rows_seen = row_count
+
+                # Collect completed results in order, track what's left
+                for j in range(len(batch)):
+                    if j in completed:
+                        results.append(completed[j])
+                    else:
+                        # Not completed — will be retried sequentially
+                        break
+                else:
+                    # All completed
+                    i += len(batch)
+
+                    # Re-evaluate concurrency
+                    new_concurrency = self._concurrency_for_rows(max_rows_seen)
+                    if new_concurrency > current_concurrency:
+                        current_concurrency = new_concurrency
+                        self.logger.info(
+                            f"Scaling concurrency to {current_concurrency} (max_rows={max_rows_seen})",
+                            hotel_code=hotel_code,
+                        )
+                    continue
+
+                # Some failed — advance past completed ones, fall back to sequential
+                completed_count = len(completed)
+                i += completed_count
+
+                if batch_rate_limited:
+                    rate_limited = True
+                    self.logger.warning(
+                        f"Rate limit hit, falling back to sequential for {len(dates) - i} remaining dates",
+                        hotel_code=hotel_code,
+                    )
+
+        return results
 
     async def _process_chunk(
         self,
@@ -222,32 +285,13 @@ class ProcessStatDailyStep(PipelineStep):
             dates.append(current_date)
             current_date += timedelta(days=1)
 
-        concurrency = max(1, settings.host_pms.stat_daily_concurrency)
-
         self.logger.info(
-            f"Fetching StatDaily for {len(dates)} dates (concurrency={concurrency}) for {chunk_label}",
+            f"Fetching StatDaily for {len(dates)} dates (adaptive concurrency) for {chunk_label}",
             hotel_code=context.hotel_code,
             date_count=len(dates),
-            concurrency=concurrency,
         )
 
-        if concurrency == 1:
-            results = await self._fetch_dates_sequential(dates, context.hotel_code)
-        else:
-            results, remaining = await self._fetch_dates_parallel(
-                dates, context.hotel_code, concurrency
-            )
-
-            if remaining:
-                self.logger.warning(
-                    f"Rate limit hit during parallel fetch, switching to sequential for {len(remaining)} remaining dates",
-                    hotel_code=context.hotel_code,
-                    remaining_dates=len(remaining),
-                )
-                sequential_results = await self._fetch_dates_sequential(
-                    remaining, context.hotel_code
-                )
-                results.extend(sequential_results)
+        results = await self._fetch_dates_adaptive(dates, context.hotel_code)
 
         # Combine all results
         chunk_records = []

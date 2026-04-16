@@ -48,9 +48,13 @@ def add_hotel_code_prefix(
         Modified event dictionary with hotel code prefix
     """
     hotel_code = event_dict.get("hotel_code")
+    worker_id = event_dict.pop("worker_id", None)
     if hotel_code:
         current_event = event_dict.get("event", "")
-        event_dict["event"] = f"[{hotel_code}] {current_event}"
+        if worker_id is not None:
+            event_dict["event"] = f"[{hotel_code}-{worker_id}] {current_event}"
+        else:
+            event_dict["event"] = f"[{hotel_code}] {current_event}"
     return event_dict
 
 

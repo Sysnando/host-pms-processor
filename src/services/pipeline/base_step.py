@@ -48,6 +48,9 @@ class PipelineStep(ABC):
         Returns:
             True if step succeeded, False if failed
         """
+        if context.worker_id is not None:
+            self.logger = self.logger.bind(worker_id=context.worker_id)
+
         self.logger.info("Step starting", hotel_code=context.hotel_code)
 
         try:

@@ -80,6 +80,7 @@ class HostPMSConnectorOrchestrator:
         self,
         hotel_code: str,
         host_api_client: Optional[HostPMSAPIClient] = None,
+        worker_id: Optional[int] = None,
     ) -> dict[str, Any]:
         """Process a single hotel through the ETL pipeline.
 
@@ -101,6 +102,7 @@ class HostPMSConnectorOrchestrator:
         logger.info(
             "Starting hotel processing",
             hotel_code=hotel_code,
+            worker_id=worker_id,
         )
 
         try:
@@ -170,6 +172,7 @@ class HostPMSConnectorOrchestrator:
 
             # Create pipeline context
             context = PipelineContext(hotel_code=hotel_code)
+            context.worker_id = worker_id
 
             # Build and execute pipeline
             pipeline = self._build_pipeline(host_api_client)
@@ -235,45 +238,51 @@ class HostPMSConnectorOrchestrator:
         # process_hotel() will fetch credentials from getIntegration if no client provided
         return await self.process_hotel(hotel_code)
 
-    async def _process_hotel_with_semaphore(
+    async def _process_hotel_with_worker(
         self,
-        semaphore: asyncio.Semaphore,
+        worker_pool: asyncio.Queue,
         hotel_code: str,
         subscription_key: str,
     ) -> dict[str, Any]:
-        """Process a single hotel with semaphore for concurrency control.
+        """Process a single hotel with a worker ID from the pool.
+
+        The worker pool acts as both concurrency limiter and ID assignment.
+        Each hotel gets a unique worker_id (1..N) that appears in logs.
 
         Args:
-            semaphore: Semaphore to limit concurrent processing
+            worker_pool: Queue of available worker IDs
             hotel_code: Hotel code to process
             subscription_key: Hotel-specific subscription key (auth_id)
 
         Returns:
             Dictionary with processing results
         """
-        async with semaphore:
-            try:
-                logger.info(
-                    "Creating Host API client with hotel-specific credentials",
-                    hotel_code=hotel_code,
-                )
-                host_api_client = HostPMSAPIClient(subscription_key=subscription_key)
+        worker_id = await worker_pool.get()
+        try:
+            logger.info(
+                "Creating Host API client with hotel-specific credentials",
+                hotel_code=hotel_code,
+                worker_id=worker_id,
+            )
+            host_api_client = HostPMSAPIClient(subscription_key=subscription_key)
 
-                # Process hotel with hotel-specific client
-                result = await self.process_hotel(hotel_code, host_api_client)
-                return result
+            result = await self.process_hotel(hotel_code, host_api_client, worker_id=worker_id)
+            return result
 
-            except Exception as e:
-                logger.error(
-                    "Failed to process hotel",
-                    hotel_code=hotel_code,
-                    error=str(e),
-                )
-                return {
-                    "hotel_code": hotel_code,
-                    "success": False,
-                    "errors": [{"step": "orchestrator", "message": str(e)}],
-                }
+        except Exception as e:
+            logger.error(
+                "Failed to process hotel",
+                hotel_code=hotel_code,
+                worker_id=worker_id,
+                error=str(e),
+            )
+            return {
+                "hotel_code": hotel_code,
+                "success": False,
+                "errors": [{"step": "orchestrator", "message": str(e)}],
+            }
+        finally:
+            worker_pool.put_nowait(worker_id)
 
     async def process_all_hotels(self, integration_type: str = "BITZ") -> dict[str, Any]:
         """Process all configured hotels through the ETL pipeline in parallel.
@@ -326,9 +335,11 @@ class HostPMSConnectorOrchestrator:
                 print(f"  Hotel Code: {code:15} | auth_id: {auth_id}")
             print("="*80 + "\n")
 
-            # Step 2: Process hotels in parallel with concurrency limit
+            # Step 2: Process hotels in parallel with worker ID pool
             max_concurrent = settings.host_pms.max_concurrent_hotels
-            semaphore = asyncio.Semaphore(max_concurrent)
+            worker_pool = asyncio.Queue()
+            for i in range(1, max_concurrent + 1):
+                worker_pool.put_nowait(i)
 
             # Build list of tasks for valid hotels
             tasks = []
@@ -356,8 +367,8 @@ class HostPMSConnectorOrchestrator:
                     continue
 
                 # Create task for this hotel
-                task = self._process_hotel_with_semaphore(
-                    semaphore, hotel_code, subscription_key
+                task = self._process_hotel_with_worker(
+                    worker_pool, hotel_code, subscription_key
                 )
                 tasks.append(task)
 
