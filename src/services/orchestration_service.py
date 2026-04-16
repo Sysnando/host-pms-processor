@@ -35,7 +35,7 @@ class HostPMSConnectorOrchestrator:
     multiple discrete steps, making the code more maintainable and testable.
     """
 
-    SUMMARY_FILE = "execution_summary.txt"
+    SUMMARY_DIR = "logs"
 
     def __init__(self):
         """Initialize the orchestrator with all required services."""
@@ -43,11 +43,15 @@ class HostPMSConnectorOrchestrator:
         self.s3_manager = S3Manager()
         self.sqs_manager = SQSManager()
         self._summary_lock = asyncio.Lock()
+        self._summary_file: str | None = None
 
     def _init_summary_file(self, total_hotels: int) -> None:
         """Create the summary file with a header at the start of execution."""
+        os.makedirs(self.SUMMARY_DIR, exist_ok=True)
+        ts = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
+        self._summary_file = os.path.join(self.SUMMARY_DIR, f"execution_summary_{ts}.txt")
         started = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S UTC")
-        with open(self.SUMMARY_FILE, "w") as f:
+        with open(self._summary_file, "w") as f:
             f.write(f"{'='*80}\n")
             f.write(f"  Host PMS Connector — Execution Summary\n")
             f.write(f"  Started: {started}\n")
@@ -88,7 +92,7 @@ class HostPMSConnectorOrchestrator:
         block = "\n".join(lines) + "\n"
 
         async with self._summary_lock:
-            with open(self.SUMMARY_FILE, "a") as f:
+            with open(self._summary_file, "a") as f:
                 f.write(block)
 
     def _build_pipeline(self, host_api_client: HostPMSAPIClient) -> Pipeline:
@@ -462,7 +466,7 @@ class HostPMSConnectorOrchestrator:
             all_results["end_time"] = datetime.utcnow().isoformat()
 
             # Write final totals to summary file
-            with open(self.SUMMARY_FILE, "a") as f:
+            with open(self._summary_file, "a") as f:
                 f.write(f"{'='*80}\n")
                 f.write(f"  Finished: {datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S UTC')}\n")
                 f.write(f"  Total: {all_results['total_hotels']}  "
