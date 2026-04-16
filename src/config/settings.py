@@ -70,6 +70,14 @@ class HostPMSSettings(BaseSettings):
     stat_daily_days_back_start: int = 7  # Days back from today for start date (default: 95 days ago)
     stat_daily_days_back_end: int = -365     # Days back from today for end date (default: 0 = today)
 
+    # StatDaily concurrency override
+    # 1 = sequential throttled (~2.85 req/sec, safe under 200/min limit)
+    # >1 = parallel fetching with that many concurrent requests (use only if API quota allows)
+    stat_daily_concurrency: int = 5
+
+    # Max concurrent hotels to process in parallel
+    max_concurrent_hotels: int = 10
+
     model_config = SettingsConfigDict(env_prefix="HOST_API_")
 
 

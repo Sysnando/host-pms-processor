@@ -7,6 +7,7 @@ from typing import Any, Optional
 from structlog import get_logger
 
 from src.aws import S3Manager, SQSManager
+from src.config import settings
 from src.clients import ClimberESBClient, HostPMSAPIClient
 from src.services.pipeline import Pipeline, PipelineContext
 from src.services.pipeline.steps import (
@@ -326,9 +327,8 @@ class HostPMSConnectorOrchestrator:
             print("="*80 + "\n")
 
             # Step 2: Process hotels in parallel with concurrency limit
-            # Create semaphore to limit concurrent processing to 3 hotels
-            # This prevents overwhelming the API and hitting rate limits (max 60/sec)
-            semaphore = asyncio.Semaphore(3)
+            max_concurrent = settings.host_pms.max_concurrent_hotels
+            semaphore = asyncio.Semaphore(max_concurrent)
 
             # Build list of tasks for valid hotels
             tasks = []
@@ -361,11 +361,11 @@ class HostPMSConnectorOrchestrator:
                 )
                 tasks.append(task)
 
-            # Process all hotels in parallel (max 3 concurrent)
+            # Process all hotels in parallel
             logger.info(
                 "Starting parallel hotel processing",
                 total_tasks=len(tasks),
-                max_concurrent=3,
+                max_concurrent=max_concurrent,
             )
 
             results = await asyncio.gather(*tasks, return_exceptions=False)

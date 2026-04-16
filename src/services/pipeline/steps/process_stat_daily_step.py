@@ -145,23 +145,36 @@ class ProcessStatDailyStep(PipelineStep):
             dates.append(current_date)
             current_date += timedelta(days=1)
 
+        concurrency = max(1, settings.host_pms.stat_daily_concurrency)
+
         self.logger.info(
-            f"Fetching StatDaily for {len(dates)} dates (single thread) for {chunk_label}",
+            f"Fetching StatDaily for {len(dates)} dates (concurrency={concurrency}) for {chunk_label}",
             hotel_code=context.hotel_code,
             date_count=len(dates),
+            concurrency=concurrency,
         )
 
-        # Fetch dates sequentially (single thread) to stay under 200 req/min (~3.3 req/sec)
-        # 350ms delay between calls = ~2.85 req/sec, safely under the limit
-        MIN_DELAY = 0.35
-        results = []
-        for date in dates:
-            start_time = asyncio.get_event_loop().time()
-            result = await self._fetch_date_async(date, context.hotel_code)
-            results.append(result)
-            elapsed = asyncio.get_event_loop().time() - start_time
-            if elapsed < MIN_DELAY:
-                await asyncio.sleep(MIN_DELAY - elapsed)
+        if concurrency == 1:
+            # Sequential throttled: 350ms min interval = ~2.85 req/sec, safely under 200/min
+            MIN_DELAY = 0.35
+            results = []
+            for date in dates:
+                start_time = asyncio.get_event_loop().time()
+                result = await self._fetch_date_async(date, context.hotel_code)
+                results.append(result)
+                elapsed = asyncio.get_event_loop().time() - start_time
+                if elapsed < MIN_DELAY:
+                    await asyncio.sleep(MIN_DELAY - elapsed)
+        else:
+            # Parallel fetching with semaphore (forced via HOST_API_STAT_DAILY_CONCURRENCY)
+            semaphore = asyncio.Semaphore(concurrency)
+
+            async def fetch_with_semaphore(date):
+                async with semaphore:
+                    return await self._fetch_date_async(date, context.hotel_code)
+
+            tasks = [fetch_with_semaphore(date) for date in dates]
+            results = await asyncio.gather(*tasks, return_exceptions=False)
 
         # Combine all results
         chunk_records = []
