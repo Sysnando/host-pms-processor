@@ -1,5 +1,7 @@
 """Step to process hotel configuration."""
 
+import asyncio
+
 from src.aws import S3Manager
 from src.clients import ClimberESBClient, HostPMSAPIClient
 from src.services.pipeline import PipelineContext, PipelineStep
@@ -46,8 +48,8 @@ class ProcessConfigStep(PipelineStep):
                 "Fetching hotel config from Host PMS API",
                 hotel_code=context.hotel_code,
             )
-            context.config_response = self.host_api_client.get_hotel_config(
-                context.hotel_code
+            context.config_response = await asyncio.to_thread(
+                self.host_api_client.get_hotel_config, context.hotel_code
             )
 
             # Extract hotel local time from config for ESB registration
@@ -107,7 +109,8 @@ class ProcessConfigStep(PipelineStep):
 
             # Upload raw config data
             if context.config_response:
-                raw_upload = self.s3_manager.upload_raw(
+                raw_upload = await asyncio.to_thread(
+                    self.s3_manager.upload_raw,
                     hotel_code=context.hotel_code,
                     data_type="hotel-configs",
                     data=context.config_response,
@@ -116,7 +119,8 @@ class ProcessConfigStep(PipelineStep):
 
             # Upload processed inventory to hotel-configs bucket
             if context.room_inventory and len(context.room_inventory.room_inventory) > 0:
-                processed_upload = self.s3_manager.upload_processed(
+                processed_upload = await asyncio.to_thread(
+                    self.s3_manager.upload_processed,
                     hotel_code=context.hotel_code,
                     data_type="hotel-configs",
                     data=context.room_inventory,

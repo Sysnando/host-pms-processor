@@ -9,6 +9,26 @@ from pythonjsonlogger import jsonlogger
 from src.config.settings import settings
 
 
+def _console_renderer(
+    logger: Any,
+    method_name: str,
+    event_dict: dict[str, Any],
+) -> str:
+    """Render log as: [time] [SEVERITY] [hotel] description (extra_key=value ...)."""
+    ts = event_dict.pop("timestamp", "")
+    level = event_dict.pop("level", method_name).upper()
+    event = event_dict.pop("event", "")
+    # Remove internal keys
+    event_dict.pop("logger_name", None)
+    event_dict.pop("logger", None)
+
+    extras = " ".join(f"{k}={v}" for k, v in event_dict.items()) if event_dict else ""
+    line = f"[{ts}] [{level}] {event}"
+    if extras:
+        line += f" ({extras})"
+    return line
+
+
 def add_hotel_code_prefix(
     logger: Any,
     method_name: str,
@@ -71,7 +91,7 @@ def configure_logging() -> None:
             add_hotel_code_prefix,  # Add [HOTELCODE] prefix before rendering
             structlog.processors.JSONRenderer()
             if settings.logging.format == "json"
-            else structlog.dev.ConsoleRenderer(pad_event=25),  # Cleaner console output with padding
+            else _console_renderer,
         ],
         context_class=dict,
         logger_factory=structlog.stdlib.LoggerFactory(),

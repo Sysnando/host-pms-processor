@@ -1,5 +1,7 @@
 """Step to process segments."""
 
+import asyncio
+
 from src.aws import S3Manager
 from src.clients import ClimberESBClient
 from src.services.pipeline import PipelineContext, PipelineStep
@@ -42,7 +44,8 @@ class ProcessSegmentsStep(PipelineStep):
 
         try:
             # Upload raw segments to S3 (same as processed, as segments are derived from config)
-            raw_upload = self.s3_manager.upload_raw(
+            raw_upload = await asyncio.to_thread(
+                self.s3_manager.upload_raw,
                 hotel_code=context.hotel_code,
                 data_type="segments",
                 data=context.segments_collection,
@@ -50,7 +53,8 @@ class ProcessSegmentsStep(PipelineStep):
             context.add_s3_upload("segments_raw", raw_upload)
 
             # Upload processed segments to S3
-            processed_upload = self.s3_manager.upload_processed(
+            processed_upload = await asyncio.to_thread(
+                self.s3_manager.upload_processed,
                 hotel_code=context.hotel_code,
                 data_type="segments",
                 data=context.segments_collection,

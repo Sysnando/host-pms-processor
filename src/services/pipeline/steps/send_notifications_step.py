@@ -1,5 +1,7 @@
 """Step to send SQS notification to trigger import workflow."""
 
+import asyncio
+
 from src.aws import SQSManager
 from src.config import settings
 from src.services.pipeline import PipelineContext, PipelineStep
@@ -43,7 +45,8 @@ class SendNotificationsStep(PipelineStep):
             )
 
             # Send single processor message to trigger import workflow
-            sqs_result = self.sqs_manager.send_processor_message(
+            sqs_result = await asyncio.to_thread(
+                self.sqs_manager.send_processor_message,
                 hotel_code_s3=hotel_code_s3,
                 message_group_id="HOST-CONNECTOR",
             )

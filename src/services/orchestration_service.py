@@ -137,7 +137,7 @@ class HostPMSConnectorOrchestrator:
             )
             try:
                 # Test credentials by fetching hotel config (lightweight call)
-                host_api_client.get_hotel_config(hotel_code)
+                await asyncio.to_thread(host_api_client.get_hotel_config, hotel_code)
                 logger.info(
                     "Subscription key validated successfully",
                     hotel_code=hotel_code,

@@ -199,7 +199,8 @@ class ProcessStatDailyStep(PipelineStep):
         chunk_timestamp = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
 
         # Upload raw StatDaily data
-        raw_upload = self.s3_manager.upload_raw(
+        raw_upload = await asyncio.to_thread(
+            self.s3_manager.upload_raw,
             hotel_code=context.hotel_code,
             data_type="reservations",
             data=chunk_records,
@@ -223,7 +224,8 @@ class ProcessStatDailyStep(PipelineStep):
         )
 
         # Upload processed reservations
-        processed_upload = self.s3_manager.upload_processed(
+        processed_upload = await asyncio.to_thread(
+            self.s3_manager.upload_processed,
             hotel_code=context.hotel_code,
             data_type="reservations",
             data=reservation_collection.reservations,

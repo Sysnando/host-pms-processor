@@ -73,7 +73,7 @@ class HostPMSSettings(BaseSettings):
     # StatDaily concurrency override
     # 1 = sequential throttled (~2.85 req/sec, safe under 200/min limit)
     # >1 = parallel fetching with that many concurrent requests (use only if API quota allows)
-    stat_daily_concurrency: int = 5
+    stat_daily_concurrency: int = 3
 
     # Max concurrent hotels to process in parallel
     max_concurrent_hotels: int = 10
@@ -100,7 +100,7 @@ class LoggingSettings(BaseSettings):
     """Logging configuration."""
 
     level: Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"] = "INFO"
-    format: Literal["json", "console"] = "json"
+    format: Literal["json", "console"] = "console"
 
     model_config = SettingsConfigDict(env_prefix="LOG_")
 
