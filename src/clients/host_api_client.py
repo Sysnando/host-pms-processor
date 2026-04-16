@@ -427,6 +427,22 @@ class HostPMSAPIClient:
 
                         wait_time = max(1.0, wait_time)
 
+                        # Abort immediately if wait exceeds 5 minutes
+                        if wait_time > 300:
+                            logger.error(
+                                f"[{hotel_code}] Rate limit retry_after too long ({wait_time}s), aborting hotel",
+                                endpoint=endpoint,
+                                rate_limit=rate_limit,
+                                time_window=time_window,
+                                retry_after=retry_after,
+                            )
+                            raise HostAPIRateLimitError(
+                                f"Rate limit exceeded at {endpoint}, retry_after={wait_time}s exceeds 5min limit",
+                                rate_limit=rate_limit,
+                                time_window=time_window,
+                                retry_after=retry_after,
+                            )
+
                         logger.warning(
                             f"[{hotel_code}] Host API rate limit exceeded, retrying",
                             endpoint=endpoint,
