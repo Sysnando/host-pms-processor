@@ -1106,11 +1106,11 @@ class HostPMSAPIClient:
         Raises:
             HostAPIClientError: If the API request fails
         """
-        logger.info(
-            "Fetching StatDaily from Host PMS API (async)",
-            hotel_code=hotel_code,
-            hotel_date_filter=hotel_date_filter,
-        )
+        # logger.info(
+        #     "Fetching StatDaily from Host PMS API (async)",
+        #     hotel_code=hotel_code,
+        #     hotel_date_filter=hotel_date_filter,
+        # )
         params = {
             "hoteldatefilter": hotel_date_filter,
         }
