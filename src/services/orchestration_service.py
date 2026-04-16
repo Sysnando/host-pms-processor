@@ -1,6 +1,7 @@
 """Main orchestrator service for the Host PMS connector ETL pipeline."""
 
 import asyncio
+import os
 from datetime import datetime
 from typing import Any, Optional
 
@@ -34,11 +35,61 @@ class HostPMSConnectorOrchestrator:
     multiple discrete steps, making the code more maintainable and testable.
     """
 
+    SUMMARY_FILE = "execution_summary.txt"
+
     def __init__(self):
         """Initialize the orchestrator with all required services."""
         self.esb_client = ClimberESBClient()
         self.s3_manager = S3Manager()
         self.sqs_manager = SQSManager()
+        self._summary_lock = asyncio.Lock()
+
+    def _init_summary_file(self, total_hotels: int) -> None:
+        """Create the summary file with a header at the start of execution."""
+        started = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S UTC")
+        with open(self.SUMMARY_FILE, "w") as f:
+            f.write(f"{'='*80}\n")
+            f.write(f"  Host PMS Connector — Execution Summary\n")
+            f.write(f"  Started: {started}\n")
+            f.write(f"  Total hotels: {total_hotels}\n")
+            f.write(f"{'='*80}\n\n")
+
+    async def _append_hotel_summary(self, result: dict[str, Any]) -> None:
+        """Append a hotel's execution summary to the file (thread-safe)."""
+        hotel = result.get("hotel_code", "UNKNOWN")
+        success = result.get("success", False)
+        duration = result.get("duration_seconds", "N/A")
+        status = "OK" if success else "FAILED"
+        errors = result.get("errors", [])
+        stats = result.get("stats", {})
+
+        lines = []
+        lines.append(f"[{datetime.utcnow().strftime('%H:%M:%S')}] {hotel:20s} {status}")
+        if duration != "N/A":
+            lines[-1] += f"  ({duration:.1f}s)"
+
+        # Stats summary
+        stat_daily = stats.get("stat_daily", {})
+        if stat_daily:
+            raw = stat_daily.get("raw_record_count", 0)
+            res = stat_daily.get("reservations_created", 0)
+            lines.append(f"         records={raw}  reservations={res}")
+
+        # Errors
+        for err in errors:
+            step = err.get("step", "?")
+            msg = err.get("message", "")
+            err_type = err.get("error_type", "")
+            label = f"{err_type} " if err_type else ""
+            lines.append(f"         ERROR [{step}] {label}{msg[:120]}")
+
+        lines.append("")
+
+        block = "\n".join(lines) + "\n"
+
+        async with self._summary_lock:
+            with open(self.SUMMARY_FILE, "a") as f:
+                f.write(block)
 
     def _build_pipeline(self, host_api_client: HostPMSAPIClient) -> Pipeline:
         """Build the ETL pipeline with all processing steps.
@@ -267,6 +318,7 @@ class HostPMSConnectorOrchestrator:
             host_api_client = HostPMSAPIClient(subscription_key=subscription_key)
 
             result = await self.process_hotel(hotel_code, host_api_client, worker_id=worker_id)
+            await self._append_hotel_summary(result)
             return result
 
         except Exception as e:
@@ -276,11 +328,13 @@ class HostPMSConnectorOrchestrator:
                 worker_id=worker_id,
                 error=str(e),
             )
-            return {
+            result = {
                 "hotel_code": hotel_code,
                 "success": False,
                 "errors": [{"step": "orchestrator", "message": str(e)}],
             }
+            await self._append_hotel_summary(result)
+            return result
         finally:
             worker_pool.put_nowait(worker_id)
 
@@ -324,6 +378,9 @@ class HostPMSConnectorOrchestrator:
             all_results["total_hotels"] = len(hotels)
 
             logger.info("Successfully fetched hotels", hotel_count=len(hotels))
+
+            # Initialize execution summary file
+            self._init_summary_file(len(hotels))
 
             # TEMP DEBUG: Print hotel credentials
             print("\n" + "="*80)
@@ -403,6 +460,16 @@ class HostPMSConnectorOrchestrator:
                                 break
 
             all_results["end_time"] = datetime.utcnow().isoformat()
+
+            # Write final totals to summary file
+            with open(self.SUMMARY_FILE, "a") as f:
+                f.write(f"{'='*80}\n")
+                f.write(f"  Finished: {datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S UTC')}\n")
+                f.write(f"  Total: {all_results['total_hotels']}  "
+                        f"OK: {all_results['successful_hotels']}  "
+                        f"Failed: {all_results['failed_hotels']}  "
+                        f"Auth failures: {all_results['authentication_failures']}\n")
+                f.write(f"{'='*80}\n")
 
             logger.info(
                 "Batch processing complete",
