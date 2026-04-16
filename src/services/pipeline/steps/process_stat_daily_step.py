@@ -450,7 +450,7 @@ class ProcessStatDailyStep(PipelineStep):
                 # Process each chunk separately
                 total_raw_records = 0
                 total_reservations = 0
-                last_chunk_result = None
+                last_chunk_with_data = None
 
                 for idx, (chunk_start, chunk_end) in enumerate(date_chunks, start=1):
                     chunk_result = await self._process_chunk(
@@ -464,12 +464,13 @@ class ProcessStatDailyStep(PipelineStep):
 
                     total_raw_records += chunk_result["raw_count"]
                     total_reservations += chunk_result["reservation_count"]
-                    last_chunk_result = chunk_result  # Keep last chunk for context
+                    if chunk_result.get("processed_upload"):
+                        last_chunk_with_data = chunk_result
 
                 # Store last chunk data in context (memory-conscious)
-                if last_chunk_result:
-                    context.stat_daily_records = last_chunk_result.get("chunk_records", [])
-                    context.reservations_collection = last_chunk_result.get("reservation_collection")
+                if last_chunk_with_data:
+                    context.stat_daily_records = last_chunk_with_data.get("chunk_records", [])
+                    context.reservations_collection = last_chunk_with_data.get("reservation_collection")
 
                 # Store aggregated statistics
                 context.stats["stat_daily"] = {
@@ -488,8 +489,8 @@ class ProcessStatDailyStep(PipelineStep):
 
                 # Register with ESB after ALL chunks are complete
                 # This ensures only ONE SQS message is sent per hotel
-                if last_chunk_result and last_chunk_result.get("processed_upload"):
-                    processed_upload = last_chunk_result["processed_upload"]
+                if last_chunk_with_data and last_chunk_with_data.get("processed_upload"):
+                    processed_upload = last_chunk_with_data["processed_upload"]
                     await self.esb_client.register_file(
                         hotel_code=context.hotel_code,
                         file_type="reservations",
