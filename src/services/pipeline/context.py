@@ -1,6 +1,6 @@
 """Pipeline context for sharing data between steps."""
 
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any
 
 
@@ -19,7 +19,7 @@ class PipelineContext:
         """
         self.hotel_code = hotel_code
         self.worker_id: int | None = None
-        self.start_time = datetime.now(datetime.timezone.utc)
+        self.start_time = datetime.now(timezone.utc)
 
         # Input parameters from ESB
         self.last_import_date: str | None = None
@@ -70,7 +70,7 @@ class PipelineContext:
         self.errors.append({
             "step": step_name,
             "message": error_message,
-            "timestamp": datetime.now(datetime.timezone.utc).isoformat(),
+            "timestamp": datetime.now(timezone.utc).isoformat(),
         })
 
     def add_s3_upload(self, data_type: str, upload_result: dict[str, str]) -> None:
@@ -96,7 +96,7 @@ class PipelineContext:
         Returns:
             Dictionary containing all results and statistics
         """
-        end_time = datetime.now(datetime.timezone.utc)
+        end_time = datetime.now(timezone.utc)
         duration = (end_time - self.start_time).total_seconds()
 
         return {

@@ -311,7 +311,7 @@ class ConfigTransformer:
         Returns:
             RoomInventoryData with all room inventory items
         """
-        from datetime import datetime
+        from datetime import datetime, timezone
 
         # Convert dict to HotelConfigResponse model if needed
         if isinstance(host_config, dict):
@@ -338,7 +338,7 @@ class ConfigTransformer:
 
         # Use execution_date if provided, otherwise use today
         if execution_date is None:
-            execution_date = datetime.now(datetime.timezone.utc).date()
+            execution_date = datetime.now(timezone.utc).date()
 
         # Handle both date objects and ISO strings
         if hasattr(execution_date, 'isoformat'):

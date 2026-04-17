@@ -2,7 +2,7 @@
 
 import asyncio
 import os
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any, Optional
 
 from structlog import get_logger
@@ -48,9 +48,9 @@ class HostPMSConnectorOrchestrator:
     def _init_summary_file(self, total_hotels: int) -> None:
         """Create the summary file with a header at the start of execution."""
         os.makedirs(self.SUMMARY_DIR, exist_ok=True)
-        ts = datetime.now(datetime.timezone.utc).strftime("%Y%m%d_%H%M%S")
+        ts = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
         self._summary_file = os.path.join(self.SUMMARY_DIR, f"execution_summary_{ts}.txt")
-        started = datetime.now(datetime.timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
+        started = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
         with open(self._summary_file, "w") as f:
             f.write(f"{'='*80}\n")
             f.write(f"  Host PMS Connector — Execution Summary\n")
@@ -68,7 +68,7 @@ class HostPMSConnectorOrchestrator:
         stats = result.get("stats", {})
 
         lines = []
-        lines.append(f"[{datetime.now(datetime.timezone.utc).strftime('%H:%M:%S')}] {hotel:20s} {status}")
+        lines.append(f"[{datetime.now(timezone.utc).strftime('%H:%M:%S')}] {hotel:20s} {status}")
         if duration != "N/A":
             lines[-1] += f"  ({duration:.1f}s)"
 
@@ -369,7 +369,7 @@ class HostPMSConnectorOrchestrator:
             "failed_hotels": 0,
             "authentication_failures": 0,
             "hotels": [],
-            "start_time": datetime.now(datetime.timezone.utc).isoformat(),
+            "start_time": datetime.now(timezone.utc).isoformat(),
         }
 
         try:
@@ -466,12 +466,12 @@ class HostPMSConnectorOrchestrator:
                                 )
                                 break
 
-            all_results["end_time"] = datetime.now(datetime.timezone.utc).isoformat()
+            all_results["end_time"] = datetime.now(timezone.utc).isoformat()
 
             # Write final totals to summary file
             with open(self._summary_file, "a") as f:
                 f.write(f"{'='*80}\n")
-                f.write(f"  Finished: {datetime.now(datetime.timezone.utc).strftime('%Y-%m-%d %H:%M:%S UTC')}\n")
+                f.write(f"  Finished: {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S UTC')}\n")
                 f.write(f"  Total: {all_results['total_hotels']}  "
                         f"OK: {all_results['successful_hotels']}  "
                         f"Failed: {all_results['failed_hotels']}  "
@@ -494,5 +494,5 @@ class HostPMSConnectorOrchestrator:
                 error=str(e),
             )
             all_results["error"] = str(e)
-            all_results["end_time"] = datetime.now(datetime.timezone.utc).isoformat()
+            all_results["end_time"] = datetime.now(timezone.utc).isoformat()
             return all_results

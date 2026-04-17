@@ -486,7 +486,7 @@ class ClimberESBClient:
             ESBClientError: If the API request fails
             ESBNotFoundError: If the hotel is not found
         """
-        from datetime import datetime, timedelta
+        from datetime import datetime, timedelta, timezone
 
         logger.info("Fetching hotel config from ESB", hotel_code=hotel_code)
 
@@ -515,7 +515,7 @@ class ClimberESBClient:
             )
         else:
             # Fallback: use 2 years ago
-            two_years_ago = datetime.now(datetime.timezone.utc) - timedelta(days=730)
+            two_years_ago = datetime.now(timezone.utc) - timedelta(days=730)
             last_import_date = two_years_ago.strftime("%Y-%m-%d")
             is_first_import = True  # No KpisCalculatedTime means this is the first import
             logger.warning(
@@ -604,7 +604,7 @@ class ClimberESBClient:
         if hotel_local_time:
             ts = hotel_local_time.strftime("%Y-%m-%dT%H:%M:%SZ")
         else:
-            ts = datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+            ts = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
         logger.info(
             "Registering file with ESB",

@@ -1,7 +1,7 @@
 """Mock S3 Manager for local testing without AWS infrastructure."""
 
 import json
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -27,7 +27,7 @@ class MockS3Manager:
         self.output_dir = Path(output_dir)
         self.raw_prefix = "mock-raw-"
         self.processed_prefix = "mock-processed-"
-        self.timestamp = datetime.now(datetime.timezone.utc).strftime("%Y%m%d_%H%M%S")
+        self.timestamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
         self.current_hotel_dir: Path | None = None  # Track current hotel directory
 
         # Create output directory if it doesn't exist

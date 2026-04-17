@@ -6,7 +6,7 @@ StatDailyToReservationTransformer.
 """
 
 import asyncio
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 from src.aws import S3Manager
 from src.clients import ClimberESBClient, HostPMSAPIClient
@@ -313,7 +313,7 @@ class ProcessStatDailyStep(PipelineStep):
             return {"raw_count": 0, "reservation_count": 0}
 
         # Generate fresh timestamp for this chunk to ensure unique filenames
-        chunk_timestamp = datetime.now(datetime.timezone.utc).strftime("%Y%m%d_%H%M%S")
+        chunk_timestamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
 
         # Upload raw StatDaily data
         raw_upload = await asyncio.to_thread(
@@ -396,7 +396,7 @@ class ProcessStatDailyStep(PipelineStep):
                 # Fallback: Calculate date range from configuration
                 # Uses HOST_API_STAT_DAILY_DAYS_BACK_START and HOST_API_STAT_DAILY_DAYS_BACK_END
                 # environment variables or defaults (95 days and 30 days)
-                today = datetime.now(datetime.timezone.utc).date()
+                today = datetime.now(timezone.utc).date()
                 start_date = today - timedelta(days=settings.host_pms.stat_daily_days_back_start)
                 end_date = today - timedelta(days=settings.host_pms.stat_daily_days_back_end)
 

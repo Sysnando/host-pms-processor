@@ -4,7 +4,7 @@ import asyncio
 import json
 import os
 import sys
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any
 
 from src.config import configure_logging, get_logger, settings
@@ -69,7 +69,7 @@ async def main() -> int:
 
             # Save full results to logs/
             os.makedirs("logs", exist_ok=True)
-            ts = datetime.now(datetime.timezone.utc).strftime("%Y%m%d_%H%M%S")
+            ts = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
             result_file = os.path.join("logs", f"etl_result_{ts}.json")
             with open(result_file, "w") as f:
                 json.dump(results, f, indent=2, default=str)
