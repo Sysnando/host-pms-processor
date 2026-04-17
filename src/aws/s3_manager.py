@@ -34,7 +34,7 @@ class S3Manager:
         self.s3_client = boto3.client("s3", **get_boto3_client_kwargs("s3"))
         self.raw_prefix = settings.aws_s3_raw_prefix
         self.processed_prefix = settings.aws_s3_processed_prefix
-        self.timestamp = datetime.now(datetime.UTC).strftime("%Y%m%d_%H%M%S")
+        self.timestamp = datetime.now(datetime.timezone.utc).strftime("%Y%m%d_%H%M%S")
 
     def _get_bucket_name(self, prefix: str, data_type: str) -> str:
         """Construct S3 bucket name from prefix and data type.
@@ -120,7 +120,7 @@ class S3Manager:
                 Metadata={
                     "hotel-code": hotel_code,
                     "data-type": data_type,
-                    "upload-timestamp": datetime.now(datetime.UTC).isoformat(),
+                    "upload-timestamp": datetime.now(datetime.timezone.utc).isoformat(),
                 },
             )
 
@@ -203,7 +203,7 @@ class S3Manager:
                     "hotel-code": hotel_code,
                     "data-type": data_type,
                     "format": "climber-standardized",
-                    "upload-timestamp": datetime.now(datetime.UTC).isoformat(),
+                    "upload-timestamp": datetime.now(datetime.timezone.utc).isoformat(),
                 },
             )
 

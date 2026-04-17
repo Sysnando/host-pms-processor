@@ -30,7 +30,7 @@ class UpdateImportDateStep(PipelineStep):
         try:
             await self.esb_client.update_import_date(
                 hotel_code=context.hotel_code,
-                last_import_date=datetime.now(datetime.UTC).isoformat(),
+                last_import_date=datetime.now(datetime.timezone.utc).isoformat(),
             )
 
             self.logger.info(

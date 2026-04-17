@@ -69,7 +69,7 @@ async def main() -> int:
 
             # Save full results to logs/
             os.makedirs("logs", exist_ok=True)
-            ts = datetime.now(datetime.UTC).strftime("%Y%m%d_%H%M%S")
+            ts = datetime.now(datetime.timezone.utc).strftime("%Y%m%d_%H%M%S")
             result_file = os.path.join("logs", f"etl_result_{ts}.json")
             with open(result_file, "w") as f:
                 json.dump(results, f, indent=2, default=str)

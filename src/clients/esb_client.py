@@ -515,7 +515,7 @@ class ClimberESBClient:
             )
         else:
             # Fallback: use 2 years ago
-            two_years_ago = datetime.now(datetime.UTC) - timedelta(days=730)
+            two_years_ago = datetime.now(datetime.timezone.utc) - timedelta(days=730)
             last_import_date = two_years_ago.strftime("%Y-%m-%d")
             is_first_import = True  # No KpisCalculatedTime means this is the first import
             logger.warning(
@@ -604,7 +604,7 @@ class ClimberESBClient:
         if hotel_local_time:
             ts = hotel_local_time.strftime("%Y-%m-%dT%H:%M:%SZ")
         else:
-            ts = datetime.now(datetime.UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
+            ts = datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
         logger.info(
             "Registering file with ESB",
