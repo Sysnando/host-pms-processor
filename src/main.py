@@ -48,8 +48,15 @@ async def main() -> int:
             return 0 if result["success"] else 1
         else:
             # Multi-hotel mode
-            logger.info("Processing all hotels from ESB")
-            results = await orchestrator.process_all_hotels()
+            # --hotel HOTELCODE filters to a single hotel while still using ESB credentials
+            only_hotel = None
+            if "--hotel" in sys.argv:
+                idx = sys.argv.index("--hotel")
+                if idx + 1 < len(sys.argv):
+                    only_hotel = sys.argv[idx + 1].strip().upper()
+                    logger.info("Filtering to single hotel", hotel_code=only_hotel)
+
+            results = await orchestrator.process_all_hotels(only_hotel=only_hotel)
 
             logger.info(
                 "ETL pipeline complete",

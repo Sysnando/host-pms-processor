@@ -342,7 +342,7 @@ class HostPMSConnectorOrchestrator:
         finally:
             worker_pool.put_nowait(worker_id)
 
-    async def process_all_hotels(self, integration_type: str = "BITZ") -> dict[str, Any]:
+    async def process_all_hotels(self, integration_type: str = "BITZ", only_hotel: str | None = None) -> dict[str, Any]:
         """Process all configured hotels through the ETL pipeline in parallel.
 
         Fetches hotels from the getIntegration endpoint and processes each
@@ -410,6 +410,9 @@ class HostPMSConnectorOrchestrator:
 
                 if not hotel_code:
                     logger.warning("Skipping hotel with no code", hotel=hotel)
+                    continue
+
+                if only_hotel and hotel_code.upper() != only_hotel.upper():
                     continue
 
                 if not subscription_key:
