@@ -27,7 +27,7 @@ class MockS3Manager:
         self.output_dir = Path(output_dir)
         self.raw_prefix = "mock-raw-"
         self.processed_prefix = "mock-processed-"
-        self.timestamp = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
+        self.timestamp = datetime.now(datetime.UTC).strftime("%Y%m%d_%H%M%S")
         self.current_hotel_dir: Path | None = None  # Track current hotel directory
 
         # Create output directory if it doesn't exist

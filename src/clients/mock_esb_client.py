@@ -72,7 +72,7 @@ class MockClimberESBClient:
         )
 
         # Calculate test dates
-        now = datetime.utcnow()
+        now = datetime.now(datetime.UTC)
         last_import = now - timedelta(days=7)
         min_import = now - timedelta(days=30)
         max_import = now
@@ -133,7 +133,7 @@ class MockClimberESBClient:
             "fileType": file_type,
             "fileKey": file_key,
             "recordCount": record_count,
-            "registeredAt": datetime.utcnow().isoformat() + "Z",
+            "registeredAt": datetime.now(datetime.UTC).isoformat() + "Z",
         }
 
         logger.info(
@@ -166,7 +166,7 @@ class MockClimberESBClient:
             "success": True,
             "hotelCode": hotel_code,
             "lastImportDate": last_import_date,
-            "updatedAt": datetime.utcnow().isoformat() + "Z",
+            "updatedAt": datetime.now(datetime.UTC).isoformat() + "Z",
         }
 
         logger.info(

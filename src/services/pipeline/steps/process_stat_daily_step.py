@@ -313,7 +313,7 @@ class ProcessStatDailyStep(PipelineStep):
             return {"raw_count": 0, "reservation_count": 0}
 
         # Generate fresh timestamp for this chunk to ensure unique filenames
-        chunk_timestamp = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
+        chunk_timestamp = datetime.now(datetime.UTC).strftime("%Y%m%d_%H%M%S")
 
         # Upload raw StatDaily data
         raw_upload = await asyncio.to_thread(
@@ -396,7 +396,7 @@ class ProcessStatDailyStep(PipelineStep):
                 # Fallback: Calculate date range from configuration
                 # Uses HOST_API_STAT_DAILY_DAYS_BACK_START and HOST_API_STAT_DAILY_DAYS_BACK_END
                 # environment variables or defaults (95 days and 30 days)
-                today = datetime.utcnow().date()
+                today = datetime.now(datetime.UTC).date()
                 start_date = today - timedelta(days=settings.host_pms.stat_daily_days_back_start)
                 end_date = today - timedelta(days=settings.host_pms.stat_daily_days_back_end)
 

@@ -48,9 +48,9 @@ class HostPMSConnectorOrchestrator:
     def _init_summary_file(self, total_hotels: int) -> None:
         """Create the summary file with a header at the start of execution."""
         os.makedirs(self.SUMMARY_DIR, exist_ok=True)
-        ts = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
+        ts = datetime.now(datetime.UTC).strftime("%Y%m%d_%H%M%S")
         self._summary_file = os.path.join(self.SUMMARY_DIR, f"execution_summary_{ts}.txt")
-        started = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S UTC")
+        started = datetime.now(datetime.UTC).strftime("%Y-%m-%d %H:%M:%S UTC")
         with open(self._summary_file, "w") as f:
             f.write(f"{'='*80}\n")
             f.write(f"  Host PMS Connector — Execution Summary\n")
@@ -68,7 +68,7 @@ class HostPMSConnectorOrchestrator:
         stats = result.get("stats", {})
 
         lines = []
-        lines.append(f"[{datetime.utcnow().strftime('%H:%M:%S')}] {hotel:20s} {status}")
+        lines.append(f"[{datetime.now(datetime.UTC).strftime('%H:%M:%S')}] {hotel:20s} {status}")
         if duration != "N/A":
             lines[-1] += f"  ({duration:.1f}s)"
 
@@ -369,7 +369,7 @@ class HostPMSConnectorOrchestrator:
             "failed_hotels": 0,
             "authentication_failures": 0,
             "hotels": [],
-            "start_time": datetime.utcnow().isoformat(),
+            "start_time": datetime.now(datetime.UTC).isoformat(),
         }
 
         try:
@@ -463,12 +463,12 @@ class HostPMSConnectorOrchestrator:
                                 )
                                 break
 
-            all_results["end_time"] = datetime.utcnow().isoformat()
+            all_results["end_time"] = datetime.now(datetime.UTC).isoformat()
 
             # Write final totals to summary file
             with open(self._summary_file, "a") as f:
                 f.write(f"{'='*80}\n")
-                f.write(f"  Finished: {datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S UTC')}\n")
+                f.write(f"  Finished: {datetime.now(datetime.UTC).strftime('%Y-%m-%d %H:%M:%S UTC')}\n")
                 f.write(f"  Total: {all_results['total_hotels']}  "
                         f"OK: {all_results['successful_hotels']}  "
                         f"Failed: {all_results['failed_hotels']}  "
@@ -491,5 +491,5 @@ class HostPMSConnectorOrchestrator:
                 error=str(e),
             )
             all_results["error"] = str(e)
-            all_results["end_time"] = datetime.utcnow().isoformat()
+            all_results["end_time"] = datetime.now(datetime.UTC).isoformat()
             return all_results
