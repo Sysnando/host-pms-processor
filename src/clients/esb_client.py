@@ -599,12 +599,8 @@ class ClimberESBClient:
             )
 
         # Generate timestamp for record_date and last_updated
-        # Use hotel local time if available, otherwise UTC
-        # Format: seconds only (no milliseconds)
-        if hotel_local_time:
-            ts = hotel_local_time.strftime("%Y-%m-%dT%H:%M:%SZ")
-        else:
-            ts = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+        # Always use current UTC time so each chunk gets a unique timestamp
+        ts = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
         logger.info(
             "Registering file with ESB",
