@@ -2,7 +2,9 @@
 
 import asyncio
 import json
+import os
 import sys
+from datetime import datetime
 from typing import Any
 
 from src.config import configure_logging, get_logger, settings
@@ -57,6 +59,14 @@ async def main() -> int:
             )
 
             print(json.dumps(results, indent=2, default=str))
+
+            # Save full results to logs/
+            os.makedirs("logs", exist_ok=True)
+            ts = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
+            result_file = os.path.join("logs", f"etl_result_{ts}.json")
+            with open(result_file, "w") as f:
+                json.dump(results, f, indent=2, default=str)
+            logger.info("ETL results saved", file=result_file)
 
             if results["successful_hotels"] > 0:
                 return 0
