@@ -467,6 +467,25 @@ class ProcessStatDailyStep(PipelineStep):
                     if chunk_result.get("processed_upload"):
                         last_chunk_with_data = chunk_result
 
+                    # Register each chunk with ESB immediately so every file is imported
+                    if chunk_result.get("processed_upload"):
+                        processed_upload = chunk_result["processed_upload"]
+                        await self.esb_client.register_file(
+                            hotel_code=context.hotel_code,
+                            file_type="reservations",
+                            file_url=processed_upload["url"],
+                            file_key=processed_upload["key"],
+                            record_count=chunk_result["reservation_count"],
+                            is_first_import=context.is_first_import,
+                            hotel_local_time=context.hotel_local_time,
+                        )
+                        self.logger.info(
+                            f"Registered chunk {idx}/{len(date_chunks)} with ESB",
+                            hotel_code=context.hotel_code,
+                            reservations=chunk_result["reservation_count"],
+                            file_key=processed_upload["key"],
+                        )
+
                 # Store last chunk data in context (memory-conscious)
                 if last_chunk_with_data:
                     context.stat_daily_records = last_chunk_with_data.get("chunk_records", [])
@@ -486,26 +505,6 @@ class ProcessStatDailyStep(PipelineStep):
                     total_stat_daily_records=total_raw_records,
                     total_reservations=total_reservations,
                 )
-
-                # Register with ESB after ALL chunks are complete
-                # This ensures only ONE SQS message is sent per hotel
-                if last_chunk_with_data and last_chunk_with_data.get("processed_upload"):
-                    processed_upload = last_chunk_with_data["processed_upload"]
-                    await self.esb_client.register_file(
-                        hotel_code=context.hotel_code,
-                        file_type="reservations",
-                        file_url=processed_upload["url"],
-                        file_key=processed_upload["key"],
-                        record_count=total_reservations,
-                        is_first_import=context.is_first_import,
-                        hotel_local_time=context.hotel_local_time,
-                    )
-                    self.logger.info(
-                        "Registered reservations with ESB",
-                        hotel_code=context.hotel_code,
-                        total_reservations=total_reservations,
-                        file_key=processed_upload["key"],
-                    )
 
             else:
                 # Regular import - process entire range at once
