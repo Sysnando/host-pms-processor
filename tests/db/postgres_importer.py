@@ -151,12 +151,43 @@ def import_reservations_to_postgres(
         placeholders = ", ".join(["%s"] * len(columns))
         insert_sql = f"INSERT INTO {table_name} ({columns_str}) VALUES ({placeholders})"
 
+        # Map DB column names (snake_case) to JSON alias keys (camelCase)
+        column_to_alias = {
+            "record_date": "recordDate",
+            "calendar_date": "calendarDate",
+            "calendar_date_start": "calendarDateStart",
+            "calendar_date_end": "calendarDateEnd",
+            "created_date": "createdDate",
+            "reservation_id": "reservationId",
+            "reservation_id_external": "reservationIdExternal",
+            "revenue_fb": "revenueFb",
+            "revenue_fb_invoice": "revenueFbInvoice",
+            "revenue_others": "revenueOthers",
+            "revenue_others_invoice": "revenueOthersInvoice",
+            "revenue_room": "revenueRoom",
+            "revenue_room_invoice": "revenueRoomInvoice",
+            "agency_code": "agencyCode",
+            "channel_code": "channelCode",
+            "company_code": "companyCode",
+            "cro_code": "croCode",
+            "group_code": "groupCode",
+            "package_code": "packageCode",
+            "rate_code": "rateCode",
+            "room_code": "roomCode",
+            "segment_code": "segmentCode",
+            "sub_segment_code": "subSegmentCode",
+        }
+
         # Convert reservations to tuples
         data_tuples = []
         for reservation in reservations:
             values = []
             for col in columns:
-                value = reservation.get(col)
+                # Try camelCase alias first, then snake_case fallback
+                alias = column_to_alias.get(col)
+                value = reservation.get(alias) if alias else None
+                if value is None:
+                    value = reservation.get(col)
                 # Convert empty strings to None for proper NULL handling
                 if value == "":
                     value = None
