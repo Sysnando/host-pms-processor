@@ -577,7 +577,7 @@ class ClimberESBClient:
         Raises:
             ESBClientError: If the registration fails
         """
-        from datetime import datetime
+        from datetime import datetime, timezone
 
         # Map file types to ESB endpoints
         endpoint_map = {
