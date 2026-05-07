@@ -73,13 +73,11 @@ class StatDailyTransformer:
         consolidated = []
         for (res_no, res_id, charge_code), records_by_type in groups.items():
             # Try to get revenue and occupancy records (HISTORY or FORECAST)
-            revenue_record = (
-                records_by_type.get("HISTORY-REVENUE") or
-                records_by_type.get("FORECAST-REVENUE")
+            revenue_record = records_by_type.get("HISTORY-REVENUE") or records_by_type.get(
+                "FORECAST-REVENUE"
             )
-            occupancy_record = (
-                records_by_type.get("HISTORY-OCCUPANCY") or
-                records_by_type.get("FORECAST-OCCUPANCY")
+            occupancy_record = records_by_type.get("HISTORY-OCCUPANCY") or records_by_type.get(
+                "FORECAST-OCCUPANCY"
             )
 
             # Use HotelDate from occupancy record if available, otherwise from revenue record
@@ -106,14 +104,16 @@ class StatDailyTransformer:
                 continue
 
             # Create consolidated record
-            consolidated.append({
-                "hotel_date": hotel_date,
-                "res_no": res_no,
-                "res_id": res_id,
-                "charge_code": charge_code,
-                "global_res_guest_id": global_res_guest_id,
-                "revenue_net": revenue_net,
-            })
+            consolidated.append(
+                {
+                    "hotel_date": hotel_date,
+                    "res_no": res_no,
+                    "res_id": res_id,
+                    "charge_code": charge_code,
+                    "global_res_guest_id": global_res_guest_id,
+                    "revenue_net": revenue_net,
+                }
+            )
 
         logger.info(
             "Consolidated StatDaily records",
@@ -281,22 +281,26 @@ class StatDailyTransformer:
                 reservation.revenue_room_invoice = matched_revenue
                 updated_count += 1
 
-                match_details.append({
-                    "calendar_date": calendar_date,
-                    "reservation_id": reservation.reservation_id,
-                    "reservation_id_external": reservation_id_external,
-                    "old_revenue_room_invoice": old_value,
-                    "new_revenue_room_invoice": matched_revenue,
-                    "match_type": match_type,
-                })
+                match_details.append(
+                    {
+                        "calendar_date": calendar_date,
+                        "reservation_id": reservation.reservation_id,
+                        "reservation_id_external": reservation_id_external,
+                        "old_revenue_room_invoice": old_value,
+                        "new_revenue_room_invoice": matched_revenue,
+                        "match_type": match_type,
+                    }
+                )
 
         logger.info(
             "Updated reservation invoices from StatDaily",
             total_reservations=len(reservation_collection.reservations),
             updated_count=updated_count,
-            match_rate=f"{(updated_count / len(reservation_collection.reservations) * 100):.1f}%"
-            if reservation_collection.reservations
-            else "0.0%",
+            match_rate=(
+                f"{(updated_count / len(reservation_collection.reservations) * 100):.1f}%"
+                if reservation_collection.reservations
+                else "0.0%"
+            ),
         )
 
         return reservation_collection, updated_count, match_details
@@ -354,9 +358,11 @@ class StatDailyTransformer:
             "noshow_aggregated_keys": len(noshow_revenue_map),
             "total_reservations": len(reservation_collection.reservations),
             "updated_reservations": updated_count,
-            "match_rate": f"{(updated_count / len(reservation_collection.reservations) * 100):.1f}%"
-            if reservation_collection.reservations
-            else "0.0%",
+            "match_rate": (
+                f"{(updated_count / len(reservation_collection.reservations) * 100):.1f}%"
+                if reservation_collection.reservations
+                else "0.0%"
+            ),
             "match_details": match_details,
         }
 

@@ -1,7 +1,7 @@
 """Pipeline step implementations.
 
-Note: ProcessReservationsStep has been deprecated. StatDaily is now the primary
-source for reservation data. See deprecated_process_reservations_step.py for reference.
+Note: ProcessReservationsStep has been removed. StatDaily is now the primary
+source for reservation data (see ProcessStatDailyStep).
 """
 
 from .fetch_parameters_step import FetchParametersStep
@@ -15,5 +15,5 @@ __all__ = [
     "ProcessConfigStep",
     "ProcessSegmentsStep",
     "ProcessStatDailyStep",
-    "SendNotificationsStep"
+    "SendNotificationsStep",
 ]

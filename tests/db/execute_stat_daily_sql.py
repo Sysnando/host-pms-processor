@@ -52,7 +52,7 @@ def execute_sql_file(sql_file_path: Path, connection_string: str, create_table: 
         return False
 
     # Read SQL file
-    with open(sql_file_path, 'r') as f:
+    with open(sql_file_path, "r") as f:
         sql_content = f.read()
 
     print(f"   📊 File size: {len(sql_content) / 1024:.2f} KB")
@@ -60,7 +60,7 @@ def execute_sql_file(sql_file_path: Path, connection_string: str, create_table: 
     # If create_table is True, uncomment the CREATE TABLE statement
     if create_table:
         print("   🔧 Uncommenting CREATE TABLE statement...")
-        lines = sql_content.split('\n')
+        lines = sql_content.split("\n")
         uncommented_lines = []
         in_create_table = False
 
@@ -79,7 +79,7 @@ def execute_sql_file(sql_file_path: Path, connection_string: str, create_table: 
             else:
                 uncommented_lines.append(line)
 
-        sql_content = '\n'.join(uncommented_lines)
+        sql_content = "\n".join(uncommented_lines)
 
     # Connect to database
     print(f"\n🔌 Connecting to database...")
@@ -107,7 +107,7 @@ def execute_sql_file(sql_file_path: Path, connection_string: str, create_table: 
 
             # Ask if user wants to truncate
             truncate = input("   ❓ Truncate table before inserting? (y/N): ").strip().lower()
-            if truncate == 'y':
+            if truncate == "y":
                 print("   🗑️  Truncating table...")
                 cursor.execute("TRUNCATE TABLE stat_daily;")
                 print("   ✅ Table truncated")
@@ -151,18 +151,18 @@ def main():
         "--sql-file",
         type=str,
         required=False,
-        help="Path to SQL file (if not provided, uses latest from data_extracts)"
+        help="Path to SQL file (if not provided, uses latest from data_extracts)",
     )
     parser.add_argument(
         "--create-table",
         action="store_true",
-        help="Create table if it doesn't exist (uncomments CREATE TABLE statement)"
+        help="Create table if it doesn't exist (uncomments CREATE TABLE statement)",
     )
     parser.add_argument(
         "--connection-string",
         type=str,
         required=False,
-        help="PostgreSQL connection string (e.g., postgresql://user:pass@localhost:5432/dbname)"
+        help="PostgreSQL connection string (e.g., postgresql://user:pass@localhost:5432/dbname)",
     )
 
     args = parser.parse_args()
@@ -175,9 +175,7 @@ def main():
         # Pattern matches: HOTELCODE_YYYYMMDD_HHMMSS (e.g., PTLISLSA_20251123_165155)
         data_extracts_dir = Path(__file__).parent.parent.parent / "data_extracts"
         extract_dirs = sorted(
-            data_extracts_dir.glob("*_*"),
-            key=lambda p: p.stat().st_mtime,
-            reverse=True
+            data_extracts_dir.glob("*_*"), key=lambda p: p.stat().st_mtime, reverse=True
         )
 
         if not extract_dirs:

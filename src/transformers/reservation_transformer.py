@@ -19,7 +19,9 @@ class ReservationTransformer:
     """Transforms Host PMS API reservations to Climber standardized format."""
 
     @staticmethod
-    def _get_status_code(res_status_int: int, reservation_status_map: dict[int, str], hotel_code: str = "UNKNOWN") -> int:
+    def _get_status_code(
+        res_status_int: int, reservation_status_map: dict[int, str], hotel_code: str = "UNKNOWN"
+    ) -> int:
         """Get Climber status code from Host PMS reservation status integer.
 
         Maps Host PMS ConfigId (integer) to status code string, then to Climber format (0-5).
@@ -51,14 +53,8 @@ class ReservationTransformer:
         else:
             # Default to CONFIRMED if we can't determine the status
             from src.models.reservation_status import ReservationStatus
-            climber_status = ReservationStatus.CONFIRMED
 
-        # logger.debug(
-        #     "Status code mapping",
-        #     host_status_int=res_status_int,
-        #     host_status_code=status_code_str,
-        #     climber_status_code=climber_status,
-        # )
+            climber_status = ReservationStatus.CONFIRMED
 
         return climber_status
 
@@ -151,9 +147,7 @@ class ReservationTransformer:
         """
         # Extract date from target_date
         target_date_str = (
-            target_date.date().isoformat()
-            if isinstance(target_date, datetime)
-            else target_date
+            target_date.date().isoformat() if isinstance(target_date, datetime) else target_date
         )
 
         # Calculate revenues from prices array for this date, grouped by sales group, removing IVA
@@ -240,10 +234,16 @@ class ReservationTransformer:
         calendar_date_end = all_dates[-1]
 
         # Get execution date (hotel local time or current time)
-        execution_date = ReservationTransformer._get_date_string(hotel_local_time) if hotel_local_time is not None else datetime.now().date().isoformat()
+        execution_date = (
+            ReservationTransformer._get_date_string(hotel_local_time)
+            if hotel_local_time is not None
+            else datetime.now().date().isoformat()
+        )
 
         # Get status code as integer (0-5) using the config mapping
-        status = ReservationTransformer._get_status_code(reservation.res_status, reservation_status_map, hotel_code)
+        status = ReservationTransformer._get_status_code(
+            reservation.res_status, reservation_status_map, hotel_code
+        )
 
         # Build segment codes with "UNASSIGNED" as default
         agency_code = reservation.agency or "UNASSIGNED"
@@ -255,14 +255,14 @@ class ReservationTransformer:
         rate_code = reservation.price_list or "UNASSIGNED"
         room_code = reservation.category or "UNASSIGNED"
         segment_code = reservation.segment_description or "UNASSIGNED"
-        sub_segment_code = (
-            reservation.sub_segment_description or "UNASSIGNED"
-        )
+        sub_segment_code = reservation.sub_segment_description or "UNASSIGNED"
 
         # Use ResNoGlobalResGuestId as reservation_id_external (no separators - stored as Long in DB)
         # If MasterDetail > 0, include it to differentiate multi-detail reservations
         if reservation.master_detail > 0:
-            reservation_id_external = f"{reservation.res_no}{reservation.global_res_guest_id}{reservation.master_detail}"
+            reservation_id_external = (
+                f"{reservation.res_no}{reservation.global_res_guest_id}{reservation.master_detail}"
+            )
         else:
             reservation_id_external = f"{reservation.res_no}{reservation.global_res_guest_id}"
 
@@ -392,7 +392,9 @@ class ReservationTransformer:
         Returns:
             Set of date strings (YYYY-MM-DD)
         """
-        prices = reservation.get("Prices", []) if isinstance(reservation, dict) else reservation.prices
+        prices = (
+            reservation.get("Prices", []) if isinstance(reservation, dict) else reservation.prices
+        )
         date_set = set()
         for price_item in prices:
             if isinstance(price_item, dict):
@@ -408,7 +410,9 @@ class ReservationTransformer:
         hotel_code: str = "UNKNOWN",
         reservation_status_map: dict[int, str] | None = None,
         hotel_local_time: datetime | str | None = None,
-    ) -> tuple[ReservationCollection, list[dict[str, Any]], list[dict[str, Any]], list[dict[str, Any]]]:
+    ) -> tuple[
+        ReservationCollection, list[dict[str, Any]], list[dict[str, Any]], list[dict[str, Any]]
+    ]:
         """Transform multiple Host PMS reservations to Climber format using Prices array.
 
         Creates records based on Prices array dates, not CheckIn/CheckOut.
@@ -456,7 +460,9 @@ class ReservationTransformer:
         overlap_records_list = []  # Track zero-revenue overlap records
 
         # Step 1: Group reservations by (ResNo, ResId, GlobalResGuestId)
-        reservation_groups = ReservationTransformer._group_reservations_by_composite_key(host_reservations)
+        reservation_groups = ReservationTransformer._group_reservations_by_composite_key(
+            host_reservations
+        )
 
         logger.info(
             "Grouped reservations by composite key",
@@ -591,7 +597,9 @@ class ReservationTransformer:
                     else:
                         detail_id = child_reservation.detail_id
 
-                    child_price_dates = ReservationTransformer._get_price_dates_set(child_reservation)
+                    child_price_dates = ReservationTransformer._get_price_dates_set(
+                        child_reservation
+                    )
                     overlapping_dates = child_price_dates & master_price_dates
                     non_overlapping_dates = child_price_dates - master_price_dates
 
@@ -630,13 +638,15 @@ class ReservationTransformer:
                                 climber_reservation.reservation_id_external = overlap_reservation_id
 
                                 # Track this overlap record
-                                overlap_records_list.append({
-                                    "res_no": res_no,
-                                    "global_res_guest_id": global_res_guest_id,
-                                    "detail_id": detail_id,
-                                    "calendar_date": calendar_date,
-                                    "reservation_external_id": overlap_reservation_id,
-                                })
+                                overlap_records_list.append(
+                                    {
+                                        "res_no": res_no,
+                                        "global_res_guest_id": global_res_guest_id,
+                                        "detail_id": detail_id,
+                                        "calendar_date": calendar_date,
+                                        "reservation_external_id": overlap_reservation_id,
+                                    }
+                                )
 
                             # Add the record (whether zeroed or not)
                             reservation_id_external = climber_reservation.reservation_id_external

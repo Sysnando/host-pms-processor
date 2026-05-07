@@ -1,7 +1,9 @@
+"""Pytest fixtures for Host PMS ETL tests."""
+
 import json
 from pathlib import Path
-import pytest
 
+import pytest
 
 FIXTURES_DIR = Path(__file__).parent / "fixtures"
 

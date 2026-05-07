@@ -28,7 +28,6 @@ class MockS3Manager:
         self.raw_prefix = "mock-raw-"
         self.processed_prefix = "mock-processed-"
         self.timestamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
-        self.current_hotel_dir: Path | None = None  # Track current hotel directory
 
         # Create output directory if it doesn't exist
         self.output_dir.mkdir(parents=True, exist_ok=True)
@@ -298,11 +297,13 @@ class MockS3Manager:
                 continue
 
             stat = file_path.stat()
-            objects.append({
-                "key": key,
-                "size": stat.st_size,
-                "last_modified": datetime.fromtimestamp(stat.st_mtime).isoformat(),
-            })
+            objects.append(
+                {
+                    "key": key,
+                    "size": stat.st_size,
+                    "last_modified": datetime.fromtimestamp(stat.st_mtime).isoformat(),
+                }
+            )
 
         logger.info(
             "MOCK: Successfully listed objects",

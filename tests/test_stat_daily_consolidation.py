@@ -1,6 +1,7 @@
 """Test StatDaily consolidation logic."""
 
 from datetime import datetime
+
 from src.transformers.stat_daily_transformer import StatDailyTransformer
 
 
@@ -142,9 +143,7 @@ def test_aggregation_regular_vs_noshow():
         },
     ]
 
-    regular_map, noshow_map = StatDailyTransformer.aggregate_revenue_by_key(
-        consolidated_records
-    )
+    regular_map, noshow_map = StatDailyTransformer.aggregate_revenue_by_key(consolidated_records)
 
     # Regular charge should use full key with GlobalResGuestId
     regular_key = ("2025-01-15", 12345, 111, 67890)

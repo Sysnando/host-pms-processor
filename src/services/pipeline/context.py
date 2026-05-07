@@ -67,11 +67,13 @@ class PipelineContext:
             step_name: Name of the step where error occurred
             error_message: Error message
         """
-        self.errors.append({
-            "step": step_name,
-            "message": error_message,
-            "timestamp": datetime.now(timezone.utc).isoformat(),
-        })
+        self.errors.append(
+            {
+                "step": step_name,
+                "message": error_message,
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+            }
+        )
 
     def add_s3_upload(self, data_type: str, upload_result: dict[str, str]) -> None:
         """Record an S3 upload result.

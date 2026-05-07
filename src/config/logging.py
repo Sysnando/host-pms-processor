@@ -1,4 +1,5 @@
 """Structured logging configuration using structlog."""
+
 import logging
 import sys
 from typing import Any
@@ -93,9 +94,11 @@ def configure_logging() -> None:
             structlog.processors.format_exc_info,
             structlog.processors.UnicodeDecoder(),
             add_hotel_code_prefix,  # Add [HOTELCODE] prefix before rendering
-            structlog.processors.JSONRenderer()
-            if settings.logging.format == "json"
-            else _console_renderer,
+            (
+                structlog.processors.JSONRenderer()
+                if settings.logging.format == "json"
+                else _console_renderer
+            ),
         ],
         context_class=dict,
         logger_factory=structlog.stdlib.LoggerFactory(),

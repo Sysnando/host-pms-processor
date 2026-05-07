@@ -1,7 +1,5 @@
 """Pydantic models for Climber standardized hotel config format."""
 
-from typing import Optional
-
 from pydantic import BaseModel, Field
 
 
@@ -11,7 +9,7 @@ class RoomDefinition(BaseModel):
     code: str = Field(description="Room code/type")
     name: str = Field(description="Room name")
     capacity: int = Field(default=0, description="Room capacity in guests")
-    category: Optional[str] = Field(None, description="Room category")
+    category: str | None = Field(None, description="Room category")
 
     class Config:
         extra = "allow"

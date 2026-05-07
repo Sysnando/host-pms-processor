@@ -34,8 +34,10 @@ class SendNotificationsStep(PipelineStep):
         try:
             # Get hotel code for S3/SQS (should be uppercase)
             hotel_code_s3 = (
-                settings.hotel_code_s3 or settings.hotel.hotel_code_s3 or context.hotel_code
-            ).strip().upper()
+                (settings.hotel_code_s3 or settings.hotel.hotel_code_s3 or context.hotel_code)
+                .strip()
+                .upper()
+            )
 
             self.logger.info(
                 "Sending final SQS trigger message",

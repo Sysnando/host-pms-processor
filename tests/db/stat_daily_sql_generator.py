@@ -79,13 +79,13 @@ class StatDailySQLGenerator:
             Formatted SQL value string
         """
         if value is None or value == "":
-            return 'NULL'
+            return "NULL"
         elif isinstance(value, str):
             # Escape single quotes in strings
             escaped = value.replace("'", "''")
             return f"'{escaped}'"
         elif isinstance(value, bool):
-            return 'TRUE' if value else 'FALSE'
+            return "TRUE" if value else "FALSE"
         elif isinstance(value, (int, float)):
             return str(value)
         else:
@@ -116,7 +116,7 @@ class StatDailySQLGenerator:
 
         # Add CREATE TABLE statement (commented out)
         sql_lines.append("-- Create table statement (uncomment if needed):")
-        for line in self.generate_create_table().split('\n'):
+        for line in self.generate_create_table().split("\n"):
             sql_lines.append(f"-- {line}")
         sql_lines.append("")
 
@@ -125,65 +125,97 @@ class StatDailySQLGenerator:
 
         # Define columns in order (snake_case)
         columns = [
-            'row_number', 'total_rows', 'record_type', 'hotel_date', 'res_no', 'res_id',
-            'detail_id', 'master_detail', 'global_res_guest_id', 'created_on',
-            'check_in', 'check_out', 'option_date', 'category', 'complex_code',
-            'room_name', 'agency', 'company', 'cro', 'groupname', 'res_status',
-            'guest_id', 'country_iso_code', 'nationality_iso_code', 'pack',
-            'price_list', 'segment_description', 'sub_segment_description',
-            'channel_description', 'additional_status_code', 'additional_status_description',
-            'category_upgrade_from', 'pax', 'children_type1', 'children_type2',
-            'children_type3', 'room_nights', 'charge_code', 'sales_group',
-            'sales_group_desc', 'revenue_gross', 'revenue_net'
+            "row_number",
+            "total_rows",
+            "record_type",
+            "hotel_date",
+            "res_no",
+            "res_id",
+            "detail_id",
+            "master_detail",
+            "global_res_guest_id",
+            "created_on",
+            "check_in",
+            "check_out",
+            "option_date",
+            "category",
+            "complex_code",
+            "room_name",
+            "agency",
+            "company",
+            "cro",
+            "groupname",
+            "res_status",
+            "guest_id",
+            "country_iso_code",
+            "nationality_iso_code",
+            "pack",
+            "price_list",
+            "segment_description",
+            "sub_segment_description",
+            "channel_description",
+            "additional_status_code",
+            "additional_status_description",
+            "category_upgrade_from",
+            "pax",
+            "children_type1",
+            "children_type2",
+            "children_type3",
+            "room_nights",
+            "charge_code",
+            "sales_group",
+            "sales_group_desc",
+            "revenue_gross",
+            "revenue_net",
         ]
 
         # Map CamelCase keys to snake_case
         camel_to_snake = {
-            'RowNumber': 'row_number',
-            'TotalRows': 'total_rows',
-            'RecordType': 'record_type',
-            'HotelDate': 'hotel_date',
-            'ResNo': 'res_no',
-            'ResId': 'res_id',
-            'DetailId': 'detail_id',
-            'MasterDetail': 'master_detail',
-            'GlobalResGuestId': 'global_res_guest_id',
-            'CreatedOn': 'created_on',
-            'CheckIn': 'check_in',
-            'CheckOut': 'check_out',
-            'OptionDate': 'option_date',
-            'Category': 'category',
-            'ComplexCode': 'complex_code',
-            'RoomName': 'room_name',
-            'Agency': 'agency',
-            'Company': 'company',
-            'Cro': 'cro',
-            'Groupname': 'groupname',
-            'ResStatus': 'res_status',
-            'Guest_Id': 'guest_id',
-            'CountryIsoCode': 'country_iso_code',
-            'NationalityIsoCode': 'nationality_iso_code',
-            'Pack': 'pack',
-            'PriceList': 'price_list',
-            'SegmentDescription': 'segment_description',
-            'SubSegmentDescription': 'sub_segment_description',
-            'ChannelDescription': 'channel_description',
-            'AdditionalStatusCode': 'additional_status_code',
-            'AdditionalStatusDescription': 'additional_status_description',
-            'CategoryUpgradeFrom': 'category_upgrade_from',
-            'Pax': 'pax',
-            'ChildrenType1': 'children_type1',
-            'ChildrenType2': 'children_type2',
-            'ChildrenType3': 'children_type3',
-            'RoomNights': 'room_nights',
-            'ChargeCode': 'charge_code',
-            'SalesGroup': 'sales_group',
-            'SalesGroupDesc': 'sales_group_desc',
-            'RevenueGross': 'revenue_gross',
-            'RevenueNet': 'revenue_net'
+            "RowNumber": "row_number",
+            "TotalRows": "total_rows",
+            "RecordType": "record_type",
+            "HotelDate": "hotel_date",
+            "ResNo": "res_no",
+            "ResId": "res_id",
+            "DetailId": "detail_id",
+            "MasterDetail": "master_detail",
+            "GlobalResGuestId": "global_res_guest_id",
+            "CreatedOn": "created_on",
+            "CheckIn": "check_in",
+            "CheckOut": "check_out",
+            "OptionDate": "option_date",
+            "Category": "category",
+            "ComplexCode": "complex_code",
+            "RoomName": "room_name",
+            "Agency": "agency",
+            "Company": "company",
+            "Cro": "cro",
+            "Groupname": "groupname",
+            "ResStatus": "res_status",
+            "Guest_Id": "guest_id",
+            "CountryIsoCode": "country_iso_code",
+            "NationalityIsoCode": "nationality_iso_code",
+            "Pack": "pack",
+            "PriceList": "price_list",
+            "SegmentDescription": "segment_description",
+            "SubSegmentDescription": "sub_segment_description",
+            "ChannelDescription": "channel_description",
+            "AdditionalStatusCode": "additional_status_code",
+            "AdditionalStatusDescription": "additional_status_description",
+            "CategoryUpgradeFrom": "category_upgrade_from",
+            "Pax": "pax",
+            "ChildrenType1": "children_type1",
+            "ChildrenType2": "children_type2",
+            "ChildrenType3": "children_type3",
+            "RoomNights": "room_nights",
+            "ChargeCode": "charge_code",
+            "SalesGroup": "sales_group",
+            "SalesGroupDesc": "sales_group_desc",
+            "RevenueGross": "revenue_gross",
+            "RevenueNet": "revenue_net",
         }
 
-        columns_str = ', '.join(columns)
+        columns_str = ", ".join(columns)
 
         # Generate one INSERT statement per record
         for i, record in enumerate(stat_daily_records, 1):
@@ -194,7 +226,7 @@ class StatDailySQLGenerator:
                 value = record.get(camel_key) if camel_key else None
                 values.append(self._format_value(value))
 
-            values_str = ', '.join(values)
+            values_str = ", ".join(values)
             sql_lines.append(f"INSERT INTO stat_daily ({columns_str}) VALUES ({values_str});")
 
             # Print progress every 100 records
@@ -204,7 +236,7 @@ class StatDailySQLGenerator:
         sql_lines.append("")
         sql_lines.append("COMMIT;")
 
-        sql_script = '\n'.join(sql_lines)
+        sql_script = "\n".join(sql_lines)
         return sql_script
 
     def save_script(self, sql_script: str, filename: str = "stat_daily_insert.sql") -> Path:
@@ -218,7 +250,7 @@ class StatDailySQLGenerator:
             Path to the generated file
         """
         output_path = self.output_dir / filename
-        with open(output_path, 'w') as f:
+        with open(output_path, "w") as f:
             f.write(sql_script)
 
         return output_path
@@ -240,7 +272,7 @@ def generate_sql_from_stat_daily(
     print(f"\n📖 Reading stat_daily data from: {json_file_path}")
 
     # Load JSON data
-    with open(json_file_path, 'r') as f:
+    with open(json_file_path, "r") as f:
         stat_daily_records = json.load(f)
 
     print(f"   📊 Records loaded: {len(stat_daily_records)}")
@@ -272,7 +304,9 @@ if __name__ == "__main__":
     data_extracts_dir = Path(__file__).parent.parent.parent / "data_extracts"
 
     # Get all extract directories (sorted by modification time, most recent first)
-    extract_dirs = sorted(data_extracts_dir.glob("*_*"), key=lambda p: p.stat().st_mtime, reverse=True)
+    extract_dirs = sorted(
+        data_extracts_dir.glob("*_*"), key=lambda p: p.stat().st_mtime, reverse=True
+    )
 
     if not extract_dirs:
         print("❌ No data extract directories found")

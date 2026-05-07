@@ -78,10 +78,7 @@ class InventoryGridTransformer:
                 date_str = daily_inv.get("date")
 
                 if not date_str:
-                    logger.warning(
-                        "Daily inventory missing date, skipping",
-                        room_code=room_code
-                    )
+                    logger.warning("Daily inventory missing date, skipping", room_code=room_code)
                     continue
 
                 try:
@@ -112,13 +109,12 @@ class InventoryGridTransformer:
                         "Failed to parse daily inventory",
                         room_code=room_code,
                         date=date_str,
-                        error=str(e)
+                        error=str(e),
                     )
                     continue
 
         logger.info(
-            "Transformed inventory grid to Climber format",
-            total_items=len(inventory_items)
+            "Transformed inventory grid to Climber format", total_items=len(inventory_items)
         )
 
         return RoomInventoryData(room_inventory=inventory_items)
@@ -157,10 +153,7 @@ class InventoryGridTransformer:
                 continue
 
             # Sort daily inventories by date
-            sorted_inventories = sorted(
-                daily_inventories,
-                key=lambda x: x.get("date", "")
-            )
+            sorted_inventories = sorted(daily_inventories, key=lambda x: x.get("date", ""))
 
             # Group consecutive dates with same inventory values
             grouped = []
@@ -177,7 +170,7 @@ class InventoryGridTransformer:
                     if isinstance(date_str, str):
                         date_obj = datetime.fromisoformat(date_str.replace("Z", "+00:00")).date()
                     else:
-                        date_obj = date_str.date() if hasattr(date_str, 'date') else date_str
+                        date_obj = date_str.date() if hasattr(date_str, "date") else date_str
 
                     inv_values = {
                         "inventory": daily_inv.get("inventory", 0),
@@ -194,8 +187,8 @@ class InventoryGridTransformer:
                             "values": inv_values,
                         }
                     elif (
-                        current_group["end_date"] == date_obj and
-                        current_group["values"] == inv_values
+                        current_group["end_date"] == date_obj
+                        and current_group["values"] == inv_values
                     ):
                         # Extend current group
                         current_group["end_date"] = date_obj + timedelta(days=1)
@@ -213,7 +206,7 @@ class InventoryGridTransformer:
                         "Failed to parse daily inventory",
                         room_code=room_code,
                         date=date_str,
-                        error=str(e)
+                        error=str(e),
                     )
                     continue
 
@@ -223,7 +216,9 @@ class InventoryGridTransformer:
 
             # Create inventory items from groups
             for group in grouped:
-                calendar_date = f"[{group['start_date'].isoformat()},{group['end_date'].isoformat()})"
+                calendar_date = (
+                    f"[{group['start_date'].isoformat()},{group['end_date'].isoformat()})"
+                )
 
                 inventory_item = RoomInventoryItem(
                     calendar_date=calendar_date,
@@ -235,9 +230,6 @@ class InventoryGridTransformer:
 
                 inventory_items.append(inventory_item)
 
-        logger.info(
-            "Transformed inventory grid with grouping",
-            total_items=len(inventory_items)
-        )
+        logger.info("Transformed inventory grid with grouping", total_items=len(inventory_items))
 
         return RoomInventoryData(room_inventory=inventory_items)

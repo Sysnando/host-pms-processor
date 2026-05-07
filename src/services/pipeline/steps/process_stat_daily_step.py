@@ -59,10 +59,7 @@ class ProcessStatDailyStep(PipelineStep):
 
         while current_start <= end_date:
             # Calculate chunk end (~4 months or 120 days)
-            current_end = min(
-                current_start + timedelta(days=120),
-                end_date
-            )
+            current_end = min(current_start + timedelta(days=120), end_date)
             chunks.append((current_start, current_end))
             current_start = current_end + timedelta(days=1)
 
@@ -90,8 +87,7 @@ class ProcessStatDailyStep(PipelineStep):
         try:
             date_str = date.isoformat()
             stat_daily_response = await self.host_api_client.get_stat_daily_async(
-                hotel_date_filter=date_str,
-                hotel_code=hotel_code
+                hotel_date_filter=date_str, hotel_code=hotel_code
             )
 
             if isinstance(stat_daily_response, list):
@@ -178,7 +174,7 @@ class ProcessStatDailyStep(PipelineStep):
                     await asyncio.sleep(MIN_DELAY - elapsed)
             else:
                 # Parallel batch: take up to current_concurrency dates
-                batch = dates[i:i + current_concurrency]
+                batch = dates[i : i + current_concurrency]
                 semaphore = asyncio.Semaphore(current_concurrency)
                 batch_rate_limited = False
                 completed = {}  # index -> result
@@ -348,7 +344,9 @@ class ProcessStatDailyStep(PipelineStep):
             data=reservation_collection.reservations,
             custom_suffix=chunk_timestamp,
         )
-        upload_key = f"reservations_processed_{chunk_index}" if chunk_index else "reservations_processed"
+        upload_key = (
+            f"reservations_processed_{chunk_index}" if chunk_index else "reservations_processed"
+        )
         context.add_s3_upload(upload_key, processed_upload)
 
         # Note: ESB registration happens after all chunks are processed (see execute method)
@@ -489,7 +487,9 @@ class ProcessStatDailyStep(PipelineStep):
                 # Store last chunk data in context (memory-conscious)
                 if last_chunk_with_data:
                     context.stat_daily_records = last_chunk_with_data.get("chunk_records", [])
-                    context.reservations_collection = last_chunk_with_data.get("reservation_collection")
+                    context.reservations_collection = last_chunk_with_data.get(
+                        "reservation_collection"
+                    )
 
                 # Store aggregated statistics
                 context.stats["stat_daily"] = {

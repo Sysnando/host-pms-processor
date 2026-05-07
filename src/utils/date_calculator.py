@@ -35,7 +35,7 @@ def calculate_date_ranges(
 
         # Use the smaller date between default and maxImportDate
         if max_import_date:
-            max_import_dt = datetime.fromisoformat(max_import_date.replace('Z', '+00:00')).date()
+            max_import_dt = datetime.fromisoformat(max_import_date.replace("Z", "+00:00")).date()
             to_date = min(default_to_date, max_import_dt).isoformat()
         else:
             to_date = default_to_date.isoformat()
@@ -53,7 +53,7 @@ def calculate_date_ranges(
     else:
         # Incremental import: lastImportDate - 7 days to min(today + 720 days, maxImportDate)
         # Parse lastImportDate (format: "2024-01-15T10:30:45Z")
-        last_import_dt = datetime.fromisoformat(last_import_date.replace('Z', '+00:00'))
+        last_import_dt = datetime.fromisoformat(last_import_date.replace("Z", "+00:00"))
 
         # Calculate from_date: lastImportDate - 7 days
         from_date = (last_import_dt.date() - timedelta(days=7)).isoformat()
@@ -63,7 +63,7 @@ def calculate_date_ranges(
 
         # Use the smaller date between default and maxImportDate
         if max_import_date:
-            max_import_dt = datetime.fromisoformat(max_import_date.replace('Z', '+00:00')).date()
+            max_import_dt = datetime.fromisoformat(max_import_date.replace("Z", "+00:00")).date()
             to_date = min(default_to_date, max_import_dt).isoformat()
         else:
             to_date = default_to_date.isoformat()

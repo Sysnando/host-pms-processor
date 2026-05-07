@@ -75,16 +75,35 @@ class SQLGenerator:
 
         # Define columns in order
         columns = [
-            'record_date', 'calendar_date', 'calendar_date_start', 'calendar_date_end',
-            'created_date', 'pax', 'reservation_id', 'reservation_id_external',
-            'revenue_fb', 'revenue_fb_invoice', 'revenue_others', 'revenue_others_invoice',
-            'revenue_room', 'revenue_room_invoice', 'rooms', 'status',
-            'agency_code', 'channel_code', 'company_code', 'cro_code',
-            'group_code', 'package_code', 'rate_code', 'room_code',
-            'segment_code', 'sub_segment_code'
+            "record_date",
+            "calendar_date",
+            "calendar_date_start",
+            "calendar_date_end",
+            "created_date",
+            "pax",
+            "reservation_id",
+            "reservation_id_external",
+            "revenue_fb",
+            "revenue_fb_invoice",
+            "revenue_others",
+            "revenue_others_invoice",
+            "revenue_room",
+            "revenue_room_invoice",
+            "rooms",
+            "status",
+            "agency_code",
+            "channel_code",
+            "company_code",
+            "cro_code",
+            "group_code",
+            "package_code",
+            "rate_code",
+            "room_code",
+            "segment_code",
+            "sub_segment_code",
         ]
 
-        columns_str = ', '.join(columns)
+        columns_str = ", ".join(columns)
 
         # Generate one INSERT statement per reservation
         for i, record in enumerate(reservations, 1):
@@ -92,17 +111,17 @@ class SQLGenerator:
             for col in columns:
                 value = record.get(col)
                 if value is None:
-                    values.append('NULL')
+                    values.append("NULL")
                 elif isinstance(value, str):
                     # Escape single quotes in strings
                     escaped = value.replace("'", "''")
                     values.append(f"'{escaped}'")
                 elif isinstance(value, bool):
-                    values.append('TRUE' if value else 'FALSE')
+                    values.append("TRUE" if value else "FALSE")
                 else:
                     values.append(str(value))
 
-            values_str = ', '.join(values)
+            values_str = ", ".join(values)
             sql_lines.append(f"INSERT INTO reservations2 ({columns_str}) VALUES ({values_str});")
 
             # Print progress every 1000 records
@@ -112,7 +131,7 @@ class SQLGenerator:
         sql_lines.append("")
         sql_lines.append("COMMIT;")
 
-        sql_script = '\n'.join(sql_lines)
+        sql_script = "\n".join(sql_lines)
         return sql_script
 
     def save_script(self, sql_script: str, filename: str = "reservations_insert.sql") -> Path:
@@ -126,7 +145,7 @@ class SQLGenerator:
             Path to the generated file
         """
         output_path = self.output_dir / filename
-        with open(output_path, 'w') as f:
+        with open(output_path, "w") as f:
             f.write(sql_script)
 
         return output_path

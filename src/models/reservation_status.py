@@ -14,6 +14,7 @@ class ReservationStatus(IntEnum):
     - 4: NO_SHOW
     - 5: TENTATIVE
     """
+
     CANCELLED = 0
     CHECKED_IN = 1
     CHECKED_OUT = 2

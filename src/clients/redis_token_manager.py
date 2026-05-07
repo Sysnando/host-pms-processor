@@ -1,6 +1,6 @@
 """Redis-based OAuth token manager for ESB authentication."""
 
-from typing import Any, Optional
+from typing import Any
 
 import httpx
 import redis.asyncio as redis
@@ -84,7 +84,7 @@ class RedisTokenManager:
             )
             raise TokenManagerError(f"Failed to obtain OAuth token: {str(e)}") from e
 
-    async def _get_cached_token(self) -> Optional[str]:
+    async def _get_cached_token(self) -> str | None:
         """Get token from Redis cache.
 
         Returns:
@@ -135,9 +135,7 @@ class RedisTokenManager:
 
         # Prepare Basic Auth header (client_id:client_secret encoded in base64)
         # Check both top-level settings.esb_basic_auth and nested settings.esb.basic_auth
-        basic_auth_value = (
-            settings.esb_basic_auth or settings.esb.basic_auth or ""
-        ).strip()
+        basic_auth_value = (settings.esb_basic_auth or settings.esb.basic_auth or "").strip()
 
         if basic_auth_value:
             # Basic auth already provided (e.g., from ESB_BASIC_AUTH env var)

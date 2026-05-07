@@ -1,7 +1,7 @@
 """Pydantic models for Host PMS API configuration responses."""
 
 from datetime import datetime
-from typing import Any, Optional
+from typing import Any
 
 from pydantic import BaseModel, Field
 
@@ -16,7 +16,7 @@ class ConfigItem(BaseModel):
     config_id: int = Field(alias="ConfigId")
     code: str = Field(alias="Code")
     description: str = Field(alias="Description")
-    inventory: Optional[int] = Field(default=0, alias="Inventory")
+    inventory: int | None = Field(default=0, alias="Inventory")
     sales_group: str = Field(default="N/A", alias="SalesGroup")
     active: bool = Field(default=True, alias="Active")
 
@@ -31,14 +31,14 @@ class HotelInfo(BaseModel):
     hotel_id: int = Field(alias="HotelId")
     hotel_code: str = Field(alias="HotelCode")
     hotel_name: str = Field(alias="HotelName")
-    hotel_name_2: Optional[str] = Field(None, alias="HotelName2")
-    fiscal_number: Optional[str] = Field(None, alias="FiscalNumber")
-    hotel_date: Optional[datetime] = Field(None, alias="HotelDate")
-    local_time: Optional[datetime] = Field(None, alias="LocalTime")
-    hotel_email: Optional[str] = Field(None, alias="HotelEmail")
-    start: Optional[datetime] = Field(None, alias="Start")
-    end: Optional[datetime] = Field(None, alias="End")
-    duration: Optional[float] = Field(None, alias="Duration")
+    hotel_name_2: str | None = Field(None, alias="HotelName2")
+    fiscal_number: str | None = Field(None, alias="FiscalNumber")
+    hotel_date: datetime | None = Field(None, alias="HotelDate")
+    local_time: datetime | None = Field(None, alias="LocalTime")
+    hotel_email: str | None = Field(None, alias="HotelEmail")
+    start: datetime | None = Field(None, alias="Start")
+    end: datetime | None = Field(None, alias="End")
+    duration: float | None = Field(None, alias="Duration")
 
     class Config:
         extra = "allow"

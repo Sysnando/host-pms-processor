@@ -49,13 +49,14 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 # Load environment variables from .env file (for DATABASE_URL and other local testing vars)
 from dotenv import load_dotenv
+
 load_dotenv()
 
-from src.config import configure_logging, get_logger, settings
 from src.clients.host_api_client import HostPMSAPIClient
+from src.config import configure_logging, get_logger, settings
+from src.models.host.config import HotelConfigResponse
 from src.transformers.config_transformer import ConfigTransformer
 from src.transformers.stat_daily_to_reservation_transformer import StatDailyToReservationTransformer
-from src.models.host.config import HotelConfigResponse
 from tests.local_test_orchestrator import LocalTestOrchestrator
 
 # Optional PostgreSQL imports (for local testing only)
@@ -63,6 +64,7 @@ try:
     from tests.db.postgres_importer import import_reservations_to_postgres
     from tests.db.stat_daily_importer import import_stat_daily_to_postgres
     from tests.db.stat_summary_importer import import_stat_summary_to_postgres
+
     DB_IMPORT_AVAILABLE = True
 except ImportError:
     DB_IMPORT_AVAILABLE = False
@@ -88,7 +90,7 @@ def fetch_stat_summary(hotel_code: str, hotel_dir: Path) -> None:
     # Calculate date range: 2 years in the past and 1 year ahead
     today = datetime.now().date()
     start_date = today - timedelta(days=730)  # 2 years back
-    end_date = today + timedelta(days=365)    # 1 year ahead
+    end_date = today + timedelta(days=365)  # 1 year ahead
 
     from_date_str = start_date.isoformat()
     to_date_str = end_date.isoformat()
@@ -104,9 +106,7 @@ def fetch_stat_summary(hotel_code: str, hotel_dir: Path) -> None:
             # Create API client and fetch StatSummary
             client = HostPMSAPIClient()
             stat_summary_response = client.get_stat_summary(
-                from_date=from_date_str,
-                to_date=to_date_str,
-                hotel_code=hotel_code
+                from_date=from_date_str, to_date=to_date_str, hotel_code=hotel_code
             )
 
             # Save raw StatSummary data
@@ -116,7 +116,9 @@ def fetch_stat_summary(hotel_code: str, hotel_dir: Path) -> None:
                 stat_summary_file = hotel_dir / f"raw_stat_summary-{timestamp}.json"
                 with open(stat_summary_file, "w") as f:
                     json.dump(stat_summary_response, f, indent=2)
-                print(f"   ✅ StatSummary saved: {stat_summary_file.name} ({len(stat_summary_response)} records)")
+                print(
+                    f"   ✅ StatSummary saved: {stat_summary_file.name} ({len(stat_summary_response)} records)"
+                )
             else:
                 print(f"   ⚠️  No StatSummary data returned from API")
 
@@ -127,7 +129,11 @@ def fetch_stat_summary(hotel_code: str, hotel_dir: Path) -> None:
             error_msg = str(e)
 
             # Check for API rate limit exceeded (429 status code)
-            if "429" in error_msg or "API calls quota exceeded" in error_msg or "quota exceeded" in error_msg.lower():
+            if (
+                "429" in error_msg
+                or "API calls quota exceeded" in error_msg
+                or "quota exceeded" in error_msg.lower()
+            ):
                 retry_count += 1
 
                 if retry_count < max_retries:
@@ -142,7 +148,7 @@ def fetch_stat_summary(hotel_code: str, hotel_dir: Path) -> None:
                         error=error_msg,
                         status_code=429,
                         retry_attempt=retry_count,
-                        wait_seconds=60
+                        wait_seconds=60,
                     )
 
                     # Wait 60 seconds before retry
@@ -158,13 +164,18 @@ def fetch_stat_summary(hotel_code: str, hotel_dir: Path) -> None:
                         hotel_code=hotel_code,
                         error=error_msg,
                         status_code=429,
-                        max_retries=max_retries
+                        max_retries=max_retries,
                     )
                     return  # Skip this hotel's StatSummary, continue processing
             else:
                 # For other errors, log and continue
                 print(f"   ❌ Error fetching StatSummary: {error_msg}")
-                logger.error("Error fetching StatSummary", hotel_code=hotel_code, error=error_msg, exc_info=True)
+                logger.error(
+                    "Error fetching StatSummary",
+                    hotel_code=hotel_code,
+                    error=error_msg,
+                    exc_info=True,
+                )
                 return  # Exit on non-rate-limit errors
 
 
@@ -206,7 +217,12 @@ def reprocess_from_raw_data(raw_data_path: str, output_dir: str, import_to_db: b
     hotel_dir = Path(output_dir) / f"{dir_name}_reprocess_{timestamp}"
     hotel_dir.mkdir(parents=True, exist_ok=True)
 
-    logger.info("Re-processing data", hotel_code=hotel_code, raw_dir=str(raw_data_dir), output_dir=str(hotel_dir))
+    logger.info(
+        "Re-processing data",
+        hotel_code=hotel_code,
+        raw_dir=str(raw_data_dir),
+        output_dir=str(hotel_dir),
+    )
     print(f"\n🔄 Reprocessing data from: {raw_data_dir.name}")
     print(f"📁 Output directory: {hotel_dir}")
 
@@ -226,12 +242,22 @@ def reprocess_from_raw_data(raw_data_path: str, output_dir: str, import_to_db: b
         # Extract hotel local time for transformations
         hotel_local_time = None
         try:
-            config_model = HotelConfigResponse(**config_response) if isinstance(config_response, dict) else config_response
+            config_model = (
+                HotelConfigResponse(**config_response)
+                if isinstance(config_response, dict)
+                else config_response
+            )
             hotel_local_time = config_model.hotel_info.local_time
             if hotel_local_time:
-                logger.info("Hotel local time extracted", hotel_code=hotel_code, local_time=str(hotel_local_time))
+                logger.info(
+                    "Hotel local time extracted",
+                    hotel_code=hotel_code,
+                    local_time=str(hotel_local_time),
+                )
         except Exception as e:
-            logger.warning("Could not extract hotel local time", hotel_code=hotel_code, error=str(e))
+            logger.warning(
+                "Could not extract hotel local time", hotel_code=hotel_code, error=str(e)
+            )
 
         # ==================== LOAD RAW STATDAILY DATA ====================
         print(f"\n2️⃣  Loading raw StatDaily data...")
@@ -243,7 +269,9 @@ def reprocess_from_raw_data(raw_data_path: str, output_dir: str, import_to_db: b
         raw_statdaily_file = raw_statdaily_files[0]
         with open(raw_statdaily_file, "r") as f:
             statdaily_records = json.load(f)
-        print(f"   ✅ Loaded {len(statdaily_records)} StatDaily records from: {raw_statdaily_file.name}")
+        print(
+            f"   ✅ Loaded {len(statdaily_records)} StatDaily records from: {raw_statdaily_file.name}"
+        )
 
         # ==================== TRANSFORM STATDAILY TO RESERVATIONS ====================
         print(f"\n3️⃣  Transforming StatDaily to reservations...")
@@ -257,7 +285,9 @@ def reprocess_from_raw_data(raw_data_path: str, output_dir: str, import_to_db: b
 
             # Save transformed reservations
             timestamp_suffix = datetime.now().strftime("%Y%m%d_%H%M%S")
-            processed_file = hotel_dir / f"processed_reservations_reservations-{timestamp_suffix}.json"
+            processed_file = (
+                hotel_dir / f"processed_reservations_reservations-{timestamp_suffix}.json"
+            )
             with open(processed_file, "w") as f:
                 json.dump(json.loads(reservation_collection.model_dump_json()), f, indent=2)
 
@@ -286,7 +316,9 @@ def reprocess_from_raw_data(raw_data_path: str, output_dir: str, import_to_db: b
                 stat_summary_data = json.load(f)
             with open(stat_summary_output, "w") as f:
                 json.dump(stat_summary_data, f, indent=2)
-            print(f"   ✅ Copied StatSummary data: {stat_summary_file.name} ({len(stat_summary_data)} records)")
+            print(
+                f"   ✅ Copied StatSummary data: {stat_summary_file.name} ({len(stat_summary_data)} records)"
+            )
         else:
             print(f"   ℹ️  No StatSummary file found in raw data directory")
 
@@ -341,9 +373,11 @@ def import_to_database(hotel_dir: Path) -> None:
             import_reservations_to_postgres(
                 json_file_path=str(reservations_file),
                 table_name="reservations_from_statdaily",
-                truncate=True
+                truncate=True,
             )
-            print(f"   ✅ Reservations from StatDaily imported to PostgreSQL (table: reservations_from_statdaily)")
+            print(
+                f"   ✅ Reservations from StatDaily imported to PostgreSQL (table: reservations_from_statdaily)"
+            )
         else:
             print(f"   ⚠️  No reservations file found, skipping import")
 
@@ -353,9 +387,7 @@ def import_to_database(hotel_dir: Path) -> None:
             # Use the first file found
             stat_daily_file = raw_reservations_files[0]
             import_stat_daily_to_postgres(
-                json_file_path=str(stat_daily_file),
-                table_name="stat_daily",
-                truncate=True
+                json_file_path=str(stat_daily_file), table_name="stat_daily", truncate=True
             )
             print(f"   ✅ StatDaily data imported to PostgreSQL")
         else:
@@ -366,9 +398,7 @@ def import_to_database(hotel_dir: Path) -> None:
         if stat_summary_files:
             stat_summary_file = stat_summary_files[0]
             import_stat_summary_to_postgres(
-                json_file_path=str(stat_summary_file),
-                table_name="stat_summary",
-                truncate=True
+                json_file_path=str(stat_summary_file), table_name="stat_summary", truncate=True
             )
             print(f"   ✅ StatSummary data imported to PostgreSQL (validation table)")
         else:
@@ -555,7 +585,9 @@ if __name__ == "__main__":
         if use_real_esb:
             print("ESB Mode: REAL (Redis + OAuth authentication)")
             print(f"ESB URL: {os.getenv('ESB_BASE_URL', 'from settings')}")
-            print(f"Redis: {os.getenv('REDIS_HOST', 'localhost')}:{os.getenv('REDIS_PORT', '6379')}")
+            print(
+                f"Redis: {os.getenv('REDIS_HOST', 'localhost')}:{os.getenv('REDIS_PORT', '6379')}"
+            )
         else:
             print("ESB Mode: MOCK (no real API calls)")
 

@@ -144,9 +144,7 @@ class MockClimberESBClient:
 
         return response
 
-    async def update_import_date(
-        self, hotel_code: str, last_import_date: str
-    ) -> dict[str, Any]:
+    async def update_import_date(self, hotel_code: str, last_import_date: str) -> dict[str, Any]:
         """Log mock import date update instead of calling ESB.
 
         Args:

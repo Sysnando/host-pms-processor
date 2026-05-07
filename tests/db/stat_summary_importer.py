@@ -183,7 +183,12 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Import stat_summary data to PostgreSQL")
     parser.add_argument("json_file", help="Path to JSON file")
     parser.add_argument("--table", default="stat_summary", help="Table name")
-    parser.add_argument("--truncate", action="store_true", default=True, help="Truncate table before import (default: True)")
+    parser.add_argument(
+        "--truncate",
+        action="store_true",
+        default=True,
+        help="Truncate table before import (default: True)",
+    )
     parser.add_argument("--batch-size", type=int, default=1000, help="Batch size for inserts")
 
     args = parser.parse_args()

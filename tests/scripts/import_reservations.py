@@ -16,10 +16,11 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
 # Load environment variables from .env file
 from dotenv import load_dotenv
+
 load_dotenv()
 
-from tests.db.postgres_importer import import_reservations_to_postgres
 from src.config.logging import configure_logging
+from tests.db.postgres_importer import import_reservations_to_postgres
 
 
 def main():

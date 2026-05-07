@@ -1,7 +1,7 @@
 """Climber ESB API client for hotel configuration and file registration."""
 
 import asyncio
-from typing import Any, Optional
+from typing import Any
 
 import httpx
 from structlog import get_logger
@@ -82,8 +82,8 @@ class ClimberESBClient:
         self,
         method: str,
         endpoint: str,
-        data: Optional[dict[str, Any]] = None,
-        params: Optional[dict[str, Any]] = None,
+        data: dict[str, Any] | None = None,
+        params: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         """Make an HTTP request to the ESB API with retry logic.
 
@@ -121,21 +121,20 @@ class ClimberESBClient:
             # Get fresh headers (important: do this inside the loop in case token was refreshed)
             headers = await self._get_headers()
 
-            # Debug: Print request details
-            print(f"\n{'=' * 80}")
-            print("ESB REQUEST DEBUG")
-            print(f"{'=' * 80}")
-            print(f"Method: {method}")
-            print(f"URL: {url}")
-            if params:
-                print(f"Query Params: {params}")
-            print(f"Headers: {dict((k, v[:20] + '...' if k == 'Authorization' and len(v) > 20 else v) for k, v in headers.items())}")
-            if data:
-                print(f"Body: {data}")
-            print(f"Attempt: {attempt + 1}/{self.max_retries}")
-            if token_refreshed:
-                print("Token was refreshed - retrying with fresh token")
-            print(f"{'=' * 80}\n")
+            logger.debug(
+                "ESB request",
+                method=method,
+                url=url,
+                params=params,
+                headers={
+                    k: (v[:20] + "..." if k == "Authorization" and len(v) > 20 else v)
+                    for k, v in headers.items()
+                },
+                body=data,
+                attempt=attempt + 1,
+                max_retries=self.max_retries,
+                token_refreshed=token_refreshed,
+            )
             try:
                 async with httpx.AsyncClient(timeout=self.timeout) as client:
                     response = await client.request(
@@ -150,18 +149,15 @@ class ClimberESBClient:
                     if response.status_code == 401:
                         # If we haven't tried refreshing the token yet, do it now
                         if not token_refreshed:
-                            print(f"\n{'=' * 80}")
-                            print("ESB REQUEST FAILED - AUTHENTICATION ERROR (401)")
-                            print("Attempting automatic token refresh...")
-                            print(f"{'=' * 80}")
-                            print(f"Method: {method}")
-                            print(f"URL: {url}")
-                            if params:
-                                print(f"Query Params: {params}")
-                            print(f"Status Code: {response.status_code}")
-                            print(f"Response: {response.text}")
-                            print(f"Action: Clearing cached token and retrying with fresh token")
-                            print(f"{'=' * 80}\n")
+                            logger.debug(
+                                "ESB request failed - authentication error (401), attempting token refresh",
+                                method=method,
+                                url=url,
+                                params=params,
+                                status_code=response.status_code,
+                                response_text=response.text,
+                                action="clear cached token and retry",
+                            )
 
                             logger.warning(
                                 "ESB authentication failed - clearing cached token and retrying",
@@ -180,17 +176,15 @@ class ClimberESBClient:
                             continue
                         else:
                             # Token was already refreshed but still getting 401 - give up
-                            print(f"\n{'=' * 80}")
-                            print("ESB REQUEST FAILED - AUTHENTICATION ERROR (401) AFTER TOKEN REFRESH")
-                            print(f"{'=' * 80}")
-                            print(f"Method: {method}")
-                            print(f"URL: {url}")
-                            if params:
-                                print(f"Query Params: {params}")
-                            print(f"Status Code: {response.status_code}")
-                            print(f"Response: {response.text}")
-                            print(f"Note: Token was refreshed but authentication still failed")
-                            print(f"{'=' * 80}\n")
+                            logger.debug(
+                                "ESB request failed - authentication error (401) after token refresh",
+                                method=method,
+                                url=url,
+                                params=params,
+                                status_code=response.status_code,
+                                response_text=response.text,
+                                note="token refreshed but authentication still failed",
+                            )
 
                             logger.error(
                                 "ESB authentication failed even after token refresh",
@@ -204,17 +198,14 @@ class ClimberESBClient:
 
                     # Handle not found errors
                     if response.status_code == 404:
-                        # Print full URL for debugging
-                        print(f"\n{'=' * 80}")
-                        print("ESB REQUEST FAILED - NOT FOUND (404)")
-                        print(f"{'=' * 80}")
-                        print(f"Method: {method}")
-                        print(f"URL: {url}")
-                        if params:
-                            print(f"Query Params: {params}")
-                        print(f"Status Code: {response.status_code}")
-                        print(f"Response: {response.text}")
-                        print(f"{'=' * 80}\n")
+                        logger.debug(
+                            "ESB request failed - not found (404)",
+                            method=method,
+                            url=url,
+                            params=params,
+                            status_code=response.status_code,
+                            response_text=response.text,
+                        )
 
                         logger.warning(
                             "ESB resource not found",
@@ -222,14 +213,12 @@ class ClimberESBClient:
                             status_code=response.status_code,
                             url=url,
                         )
-                        raise ESBNotFoundError(
-                            f"Resource not found: {endpoint}"
-                        )
+                        raise ESBNotFoundError(f"Resource not found: {endpoint}")
 
                     # Handle server errors with retry
                     if response.status_code >= 500:
                         if attempt < self.max_retries - 1:
-                            wait_time = self.retry_backoff_base ** attempt
+                            wait_time = self.retry_backoff_base**attempt
                             logger.warning(
                                 "ESB server error, retrying",
                                 endpoint=endpoint,
@@ -241,18 +230,16 @@ class ClimberESBClient:
                             await asyncio.sleep(wait_time)
                             continue
                         else:
-                            # Print full URL for debugging
-                            print(f"\n{'=' * 80}")
-                            print("ESB REQUEST FAILED - SERVER ERROR (5xx)")
-                            print(f"{'=' * 80}")
-                            print(f"Method: {method}")
-                            print(f"URL: {url}")
-                            if params:
-                                print(f"Query Params: {params}")
-                            print(f"Status Code: {response.status_code}")
-                            print(f"Response: {response.text}")
-                            print(f"Attempts: {attempt + 1}/{self.max_retries}")
-                            print(f"{'=' * 80}\n")
+                            logger.debug(
+                                "ESB request failed - server error (5xx)",
+                                method=method,
+                                url=url,
+                                params=params,
+                                status_code=response.status_code,
+                                response_text=response.text,
+                                attempts=attempt + 1,
+                                max_retries=self.max_retries,
+                            )
 
                             logger.error(
                                 "ESB server error, max retries exceeded",
@@ -260,23 +247,18 @@ class ClimberESBClient:
                                 status_code=response.status_code,
                                 url=url,
                             )
-                            raise ESBServerError(
-                                f"Server error at {endpoint}: {response.text}"
-                            )
+                            raise ESBServerError(f"Server error at {endpoint}: {response.text}")
 
                     # Handle client errors (non-auth, non-404)
                     if 400 <= response.status_code < 500:
-                        # Print full URL for debugging
-                        print(f"\n{'=' * 80}")
-                        print("ESB REQUEST FAILED - CLIENT ERROR (4xx)")
-                        print(f"{'=' * 80}")
-                        print(f"Method: {method}")
-                        print(f"URL: {url}")
-                        if params:
-                            print(f"Query Params: {params}")
-                        print(f"Status Code: {response.status_code}")
-                        print(f"Response: {response.text}")
-                        print(f"{'=' * 80}\n")
+                        logger.debug(
+                            "ESB request failed - client error (4xx)",
+                            method=method,
+                            url=url,
+                            params=params,
+                            status_code=response.status_code,
+                            response_text=response.text,
+                        )
 
                         logger.error(
                             "ESB client error",
@@ -285,9 +267,7 @@ class ClimberESBClient:
                             response_text=response.text,
                             url=url,
                         )
-                        raise ESBClientError(
-                            f"Client error at {endpoint}: {response.text}"
-                        )
+                        raise ESBClientError(f"Client error at {endpoint}: {response.text}")
 
                     # Handle success
                     if response.status_code in (200, 201, 202, 204):
@@ -302,17 +282,14 @@ class ClimberESBClient:
                         return {}
 
                     # Unexpected status code
-                    # Print full URL for debugging
-                    print(f"\n{'=' * 80}")
-                    print("ESB REQUEST FAILED - UNEXPECTED STATUS CODE")
-                    print(f"{'=' * 80}")
-                    print(f"Method: {method}")
-                    print(f"URL: {url}")
-                    if params:
-                        print(f"Query Params: {params}")
-                    print(f"Status Code: {response.status_code}")
-                    print(f"Response: {response.text}")
-                    print(f"{'=' * 80}\n")
+                    logger.debug(
+                        "ESB request failed - unexpected status code",
+                        method=method,
+                        url=url,
+                        params=params,
+                        status_code=response.status_code,
+                        response_text=response.text,
+                    )
 
                     logger.error(
                         "Unexpected ESB response status",
@@ -326,7 +303,7 @@ class ClimberESBClient:
 
             except httpx.TimeoutException as e:
                 if attempt < self.max_retries - 1:
-                    wait_time = self.retry_backoff_base ** attempt
+                    wait_time = self.retry_backoff_base**attempt
                     logger.warning(
                         "ESB request timeout, retrying",
                         endpoint=endpoint,
@@ -337,17 +314,14 @@ class ClimberESBClient:
                     await asyncio.sleep(wait_time)
                     continue
                 else:
-                    # Print full URL for debugging
-                    print(f"\n{'=' * 80}")
-                    print("ESB REQUEST FAILED - TIMEOUT")
-                    print(f"{'=' * 80}")
-                    print(f"Method: {method}")
-                    print(f"URL: {url}")
-                    if params:
-                        print(f"Query Params: {params}")
-                    print(f"Error: Request timeout after {self.max_retries} attempts")
-                    print(f"Timeout: {self.timeout}s")
-                    print(f"{'=' * 80}\n")
+                    logger.debug(
+                        "ESB request failed - timeout",
+                        method=method,
+                        url=url,
+                        params=params,
+                        error=f"Request timeout after {self.max_retries} attempts",
+                        timeout=self.timeout,
+                    )
 
                     logger.error(
                         "ESB request timeout, max retries exceeded",
@@ -358,7 +332,7 @@ class ClimberESBClient:
 
             except httpx.RequestError as e:
                 if attempt < self.max_retries - 1:
-                    wait_time = self.retry_backoff_base ** attempt
+                    wait_time = self.retry_backoff_base**attempt
                     logger.warning(
                         "ESB request error, retrying",
                         endpoint=endpoint,
@@ -370,17 +344,15 @@ class ClimberESBClient:
                     await asyncio.sleep(wait_time)
                     continue
                 else:
-                    # Print full URL for debugging
-                    print(f"\n{'=' * 80}")
-                    print("ESB REQUEST FAILED - REQUEST ERROR")
-                    print(f"{'=' * 80}")
-                    print(f"Method: {method}")
-                    print(f"URL: {url}")
-                    if params:
-                        print(f"Query Params: {params}")
-                    print(f"Error: {str(e)}")
-                    print(f"Attempts: {attempt + 1}/{self.max_retries}")
-                    print(f"{'=' * 80}\n")
+                    logger.debug(
+                        "ESB request failed - request error",
+                        method=method,
+                        url=url,
+                        params=params,
+                        error=str(e),
+                        attempts=attempt + 1,
+                        max_retries=self.max_retries,
+                    )
 
                     logger.error(
                         "ESB request error, max retries exceeded",
@@ -388,20 +360,15 @@ class ClimberESBClient:
                         error=str(e),
                         url=url,
                     )
-                    raise ESBClientError(
-                        f"Request failed for {endpoint}: {str(e)}"
-                    ) from e
+                    raise ESBClientError(f"Request failed for {endpoint}: {str(e)}") from e
 
-        # Print full URL for debugging
-        print(f"\n{'=' * 80}")
-        print("ESB REQUEST FAILED - MAX RETRIES EXCEEDED")
-        print(f"{'=' * 80}")
-        print(f"Method: {method}")
-        print(f"URL: {url}")
-        if params:
-            print(f"Query Params: {params}")
-        print(f"Max Retries: {self.max_retries}")
-        print(f"{'=' * 80}\n")
+        logger.debug(
+            "ESB request failed - max retries exceeded",
+            method=method,
+            url=url,
+            params=params,
+            max_retries=self.max_retries,
+        )
 
         raise ESBClientError(f"Failed to complete request to {endpoint}")
 
@@ -552,7 +519,7 @@ class ClimberESBClient:
         file_key: str,
         record_count: int,
         is_first_import: bool = False,
-        hotel_local_time: Optional[Any] = None,
+        hotel_local_time: Any | None = None,
     ) -> dict[str, Any]:
         """Register an imported file with the ESB.
 
@@ -636,9 +603,7 @@ class ClimberESBClient:
         )
         return response
 
-    async def update_import_date(
-        self, hotel_code: str, last_import_date: str
-    ) -> dict[str, Any]:
+    async def update_import_date(self, hotel_code: str, last_import_date: str) -> dict[str, Any]:
         """Update the last import date for a hotel.
 
         Args:
@@ -687,9 +652,7 @@ class ClimberESBClient:
             ESBNotFoundError: If the hotel is not found
         """
         logger.info("Fetching hotel credentials from ESB", hotel_code=hotel_code)
-        response = await self._make_request(
-            "GET", f"/hotels/{hotel_code}/credentials"
-        )
+        response = await self._make_request("GET", f"/hotels/{hotel_code}/credentials")
         logger.info(
             "Successfully fetched hotel credentials",
             hotel_code=hotel_code,

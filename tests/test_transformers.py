@@ -169,9 +169,7 @@ class TestSegmentTransformer:
             ]
         )
 
-        merged = SegmentTransformer.merge_segment_collections(
-            [collection1, collection2]
-        )
+        merged = SegmentTransformer.merge_segment_collections([collection1, collection2])
 
         assert len(merged.channels) == 2
         assert len(merged.agencies) == 1

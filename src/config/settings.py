@@ -1,5 +1,6 @@
 """Application settings and configuration management."""
-from typing import Literal, Optional
+
+from typing import Literal
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
@@ -62,13 +63,17 @@ class HostPMSSettings(BaseSettings):
     """Host PMS API configuration."""
 
     base_url: str = "https://hostapi.azure-api.net/rms-v2"
-    subscription_key: str = "test-subscription-key-default"  # Default for testing, should be overridden in production
+    subscription_key: str = (
+        "test-subscription-key-default"  # Default for testing, should be overridden in production
+    )
     request_timeout: int = 30
     max_retries: int = 3
 
     # StatDaily date range configuration
-    stat_daily_days_back_start: int = 7  # Days back from today for start date (default: 95 days ago)
-    stat_daily_days_back_end: int = -365     # Days back from today for end date (default: 0 = today)
+    stat_daily_days_back_start: int = (
+        7  # Days back from today for start date (default: 95 days ago)
+    )
+    stat_daily_days_back_end: int = -365  # Days back from today for end date (default: 0 = today)
 
     # StatDaily concurrency override
     # 1 = sequential throttled (~2.85 req/sec, safe under 200/min limit)
@@ -87,7 +92,7 @@ class RedisSettings(BaseSettings):
     host: str = "localhost"
     port: int = 6379
     db: int = 0
-    password: Optional[str] = None
+    password: str | None = None
     ssl: bool = False
     decode_responses: bool = True
     socket_timeout: int = 5
@@ -194,11 +199,7 @@ class Settings(BaseSettings):
 
     def padrao_hotel_configs_bucket(self) -> str:
         """S3 hotel configs bucket (padrão). Where pms-processor expects config files."""
-        return (
-            self.s3_hotel_configs_bucket
-            or self.aws.s3_hotel_configs_bucket
-            or ""
-        )
+        return self.s3_hotel_configs_bucket or self.aws.s3_hotel_configs_bucket or ""
 
     def padrao_sqs_queue_url(self) -> str:
         """SQS queue URL (padrão)."""

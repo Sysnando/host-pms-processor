@@ -86,7 +86,9 @@ class ProcessConfigStep(PipelineStep):
             # This replaces the deprecated InventoryGrid API call
             # Use calculated_stat_daily_start to align inventory with reservation data range
             # Fallback to calculated_inventory_from if stat_daily_start is not available
-            inventory_from_date = context.calculated_stat_daily_start or context.calculated_inventory_from
+            inventory_from_date = (
+                context.calculated_stat_daily_start or context.calculated_inventory_from
+            )
 
             if not inventory_from_date:
                 self.logger.warning(
@@ -99,7 +101,11 @@ class ProcessConfigStep(PipelineStep):
                     "Extracting room inventory from config",
                     hotel_code=context.hotel_code,
                     inventory_from=inventory_from_date,
-                    source="calculated_stat_daily_start" if context.calculated_stat_daily_start else "calculated_inventory_from",
+                    source=(
+                        "calculated_stat_daily_start"
+                        if context.calculated_stat_daily_start
+                        else "calculated_inventory_from"
+                    ),
                 )
 
                 context.room_inventory = ConfigTransformer.get_room_inventory(
@@ -148,14 +154,18 @@ class ProcessConfigStep(PipelineStep):
             context.stats["config"] = {
                 "room_count": context.config_data.room_count,
                 "segments_extracted": True,
-                "inventory_items": len(context.room_inventory.room_inventory) if context.room_inventory else 0,
+                "inventory_items": (
+                    len(context.room_inventory.room_inventory) if context.room_inventory else 0
+                ),
             }
 
             self.logger.info(
                 "Processed config successfully",
                 hotel_code=context.hotel_code,
                 room_count=context.config_data.room_count,
-                inventory_items=len(context.room_inventory.room_inventory) if context.room_inventory else 0,
+                inventory_items=(
+                    len(context.room_inventory.room_inventory) if context.room_inventory else 0
+                ),
             )
 
             return True

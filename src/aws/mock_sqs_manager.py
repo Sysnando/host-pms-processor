@@ -3,7 +3,7 @@
 import json
 import uuid
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any
 
 from pydantic import BaseModel
 from structlog import get_logger
@@ -141,7 +141,7 @@ class MockSQSManager:
         hotel_code: str,
         file_type: str,
         file_key: str,
-        metadata: Optional[dict[str, Any]] = None,
+        metadata: dict[str, Any] | None = None,
     ) -> dict[str, str]:
         """Log mock message instead of sending to SQS.
 
@@ -177,9 +177,7 @@ class MockSQSManager:
         message_id = str(uuid.uuid4())
 
         # Generate deduplication ID (same as real implementation)
-        deduplication_id = str(
-            uuid.uuid5(uuid.NAMESPACE_DNS, f"{hotel_code}{file_key}")
-        )
+        deduplication_id = str(uuid.uuid5(uuid.NAMESPACE_DNS, f"{hotel_code}{file_key}"))
 
         # Log message
         message = {

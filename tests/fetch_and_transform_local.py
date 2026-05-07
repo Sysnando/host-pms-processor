@@ -34,12 +34,14 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 # Load environment variables from .env file (for DATABASE_URL and other local testing vars)
 from dotenv import load_dotenv
+
 load_dotenv()
 
 from structlog import get_logger
-from src.config.logging import configure_logging
-from src.config import settings
+
 from src.clients.host_api_client import HostPMSAPIClient
+from src.config import settings
+from src.config.logging import configure_logging
 from src.transformers.config_transformer import ConfigTransformer
 from tests.db.sql_generator import generate_sql_from_reservations
 
@@ -48,6 +50,7 @@ try:
     from tests.db.postgres_importer import import_reservations_to_postgres
     from tests.db.stat_daily_importer import import_stat_daily_to_postgres
     from tests.db.stat_summary_importer import import_stat_summary_to_postgres
+
     DB_IMPORT_AVAILABLE = True
 except ImportError:
     DB_IMPORT_AVAILABLE = False
@@ -98,11 +101,18 @@ def fetch_and_transform_local(
         hotel_dir = output_dir / f"{raw_data_dir.name}_reprocess_{timestamp}"
         hotel_dir.mkdir(exist_ok=True)
 
-        logger.info("Re-processing data from raw directory", hotel_code=hotel_code, raw_data_dir=str(raw_data_dir), output_dir=str(hotel_dir))
+        logger.info(
+            "Re-processing data from raw directory",
+            hotel_code=hotel_code,
+            raw_data_dir=str(raw_data_dir),
+            output_dir=str(hotel_dir),
+        )
     else:
         # Fetch from API
         if not hotel_code or not from_date:
-            print("❌ Error: --hotel-code and --from-date are required when not using --raw-data-path")
+            print(
+                "❌ Error: --hotel-code and --from-date are required when not using --raw-data-path"
+            )
             return
 
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -111,7 +121,12 @@ def fetch_and_transform_local(
 
         client = HostPMSAPIClient()
 
-        logger.info("Starting data extraction", hotel_code=hotel_code, output_dir=str(hotel_dir), from_date=from_date)
+        logger.info(
+            "Starting data extraction",
+            hotel_code=hotel_code,
+            output_dir=str(hotel_dir),
+            from_date=from_date,
+        )
 
     # ==================== CONFIG ====================
     logger.info("Loading hotel config", hotel_code=hotel_code)
@@ -120,12 +135,16 @@ def fetch_and_transform_local(
             # Load from existing file
             config_raw_file = raw_data_dir / "01_config_raw.json"
             if not config_raw_file.exists():
-                logger.warning("Config file not found", hotel_code=hotel_code, file_path=str(config_raw_file))
+                logger.warning(
+                    "Config file not found", hotel_code=hotel_code, file_path=str(config_raw_file)
+                )
                 config_response = None
             else:
                 with open(config_raw_file, "r") as f:
                     config_response = json.load(f)
-                logger.info("Raw config loaded", hotel_code=hotel_code, file_path=str(config_raw_file))
+                logger.info(
+                    "Raw config loaded", hotel_code=hotel_code, file_path=str(config_raw_file)
+                )
         else:
             # Fetch from API
             config_response = client.get_hotel_config(hotel_code)
@@ -144,20 +163,30 @@ def fetch_and_transform_local(
             config_transformed_file = hotel_dir / "01_config_transformed.json"
             config_data = {
                 "hotel_config": json.loads(hotel_config.model_dump_json(by_alias=True)),
-                "segments": json.loads(segment_collection.model_dump_json(by_alias=True))
+                "segments": json.loads(segment_collection.model_dump_json(by_alias=True)),
             }
             with open(config_transformed_file, "w") as f:
                 json.dump(config_data, f, indent=2)
-            logger.info("Transformed config saved", hotel_code=hotel_code, file_path=str(config_transformed_file))
+            logger.info(
+                "Transformed config saved",
+                hotel_code=hotel_code,
+                file_path=str(config_transformed_file),
+            )
 
             # Extract and save room inventory
             room_inventory = ConfigTransformer.get_room_inventory(config_response)
             inventory_transformed_file = hotel_dir / "02_inventory_transformed.json"
             with open(inventory_transformed_file, "w") as f:
                 json.dump(json.loads(room_inventory.model_dump_json()), f, indent=2)
-            logger.info("Room inventory saved", hotel_code=hotel_code, file_path=str(inventory_transformed_file))
+            logger.info(
+                "Room inventory saved",
+                hotel_code=hotel_code,
+                file_path=str(inventory_transformed_file),
+            )
         else:
-            logger.warning("Skipping config transformation (config not loaded)", hotel_code=hotel_code)
+            logger.warning(
+                "Skipping config transformation (config not loaded)", hotel_code=hotel_code
+            )
 
     except Exception as e:
         logger.error("Error with config", hotel_code=hotel_code, error=str(e))
@@ -176,14 +205,24 @@ def fetch_and_transform_local(
             config_model = config_response
 
         reservation_statuses = ConfigTransformer.get_reservation_statuses(config_model)
-        logger.info("Found reservation status codes", hotel_code=hotel_code, status_count=len(reservation_statuses))
+        logger.info(
+            "Found reservation status codes",
+            hotel_code=hotel_code,
+            status_count=len(reservation_statuses),
+        )
 
         # Extract hotel local time for record_date calculation
         hotel_local_time = config_model.hotel_info.local_time
         if hotel_local_time:
-            logger.info("Hotel local time extracted", hotel_code=hotel_code, local_time=str(hotel_local_time))
+            logger.info(
+                "Hotel local time extracted",
+                hotel_code=hotel_code,
+                local_time=str(hotel_local_time),
+            )
     except Exception as e:
-        logger.warning("Could not extract reservation statuses", hotel_code=hotel_code, error=str(e))
+        logger.warning(
+            "Could not extract reservation statuses", hotel_code=hotel_code, error=str(e)
+        )
 
     # ==================== RESERVATIONS ====================
     # logger.info("Loading reservations", hotel_code=hotel_code)
@@ -430,7 +469,9 @@ def fetch_and_transform_local(
         if stat_daily_start_date or stat_daily_end_date:
             print(f"   ℹ️  Using custom date range from command-line arguments")
         else:
-            print(f"   ℹ️  Using default date range from settings (days_back_start={settings.host_pms.stat_daily_days_back_start}, days_back_end={settings.host_pms.stat_daily_days_back_end})")
+            print(
+                f"   ℹ️  Using default date range from settings (days_back_start={settings.host_pms.stat_daily_days_back_start}, days_back_end={settings.host_pms.stat_daily_days_back_end})"
+            )
 
         # Fetch StatDaily for each date in range
         all_stat_daily_records = []
@@ -449,7 +490,9 @@ def fetch_and_transform_local(
             if stat_daily_raw_file.exists():
                 with open(stat_daily_raw_file, "r") as f:
                     all_stat_daily_records = json.load(f)
-                print(f"   ✅ Loaded existing StatDaily data: {len(all_stat_daily_records)} records")
+                print(
+                    f"   ✅ Loaded existing StatDaily data: {len(all_stat_daily_records)} records"
+                )
             else:
                 print(f"   ⚠️  StatDaily file not found in raw data directory")
         else:
@@ -457,7 +500,9 @@ def fetch_and_transform_local(
             for date in dates_to_fetch:
                 date_str = date.isoformat()
                 try:
-                    stat_daily_response = client.get_stat_daily(hotel_code=hotel_code, hotel_date_filter=date_str)
+                    stat_daily_response = client.get_stat_daily(
+                        hotel_code=hotel_code, hotel_date_filter=date_str
+                    )
 
                     # Response is a list
                     if isinstance(stat_daily_response, list):
@@ -475,12 +520,16 @@ def fetch_and_transform_local(
             stat_daily_raw_file = hotel_dir / "08_stat_daily_raw.json"
             with open(stat_daily_raw_file, "w") as f:
                 json.dump(all_stat_daily_records, f, indent=2)
-            print(f"   ✅ Raw StatDaily saved: {stat_daily_raw_file} ({len(all_stat_daily_records)} records)")
+            print(
+                f"   ✅ Raw StatDaily saved: {stat_daily_raw_file} ({len(all_stat_daily_records)} records)"
+            )
 
             # ==================== CONVERT STAT DAILY TO RESERVATIONS ====================
             print(f"\n   🔄 Converting StatDaily to Climber reservations...")
             try:
-                from src.transformers.stat_daily_to_reservation_transformer import StatDailyToReservationTransformer
+                from src.transformers.stat_daily_to_reservation_transformer import (
+                    StatDailyToReservationTransformer,
+                )
 
                 reservation_collection = StatDailyToReservationTransformer.transform_batch(
                     all_stat_daily_records,
@@ -494,8 +543,12 @@ def fetch_and_transform_local(
                 with open(reservations_from_statdaily_file, "w") as f:
                     json.dump(json.loads(reservation_collection.model_dump_json()), f, indent=2)
 
-                print(f"   ✅ Reservations from StatDaily saved: {reservations_from_statdaily_file}")
-                print(f"   📊 Created {len(reservation_collection.reservations)} reservation lines from StatDaily")
+                print(
+                    f"   ✅ Reservations from StatDaily saved: {reservations_from_statdaily_file}"
+                )
+                print(
+                    f"   📊 Created {len(reservation_collection.reservations)} reservation lines from StatDaily"
+                )
 
                 # Generate SQL INSERT script from StatDaily reservations
                 if reservation_collection.reservations:
@@ -509,6 +562,7 @@ def fetch_and_transform_local(
             except Exception as e:
                 print(f"   ❌ Error converting StatDaily to reservations: {str(e)}")
                 import traceback
+
                 traceback.print_exc()
 
         else:
@@ -527,9 +581,7 @@ def fetch_and_transform_local(
         if not using_raw_data:
             # Fetch from API
             stat_summary_response = client.get_stat_summary(
-                from_date=from_date_str,
-                to_date=to_date_str,
-                hotel_code=hotel_code
+                from_date=from_date_str, to_date=to_date_str, hotel_code=hotel_code
             )
 
             # Save raw StatSummary data
@@ -537,7 +589,9 @@ def fetch_and_transform_local(
                 stat_summary_raw_file = hotel_dir / "13_stat_summary_raw.json"
                 with open(stat_summary_raw_file, "w") as f:
                     json.dump(stat_summary_response, f, indent=2)
-                print(f"   ✅ Raw StatSummary saved: {stat_summary_raw_file} ({len(stat_summary_response)} records)")
+                print(
+                    f"   ✅ Raw StatSummary saved: {stat_summary_raw_file} ({len(stat_summary_response)} records)"
+                )
                 print(f"   📅 StatSummary date range: {from_date_str} to {to_date_str}")
             else:
                 print(f"   ⚠️  No StatSummary data returned from API")
@@ -547,7 +601,9 @@ def fetch_and_transform_local(
             if stat_summary_raw_file.exists():
                 with open(stat_summary_raw_file, "r") as f:
                     stat_summary_response = json.load(f)
-                print(f"   ✅ Loaded existing StatSummary data: {len(stat_summary_response)} records")
+                print(
+                    f"   ✅ Loaded existing StatSummary data: {len(stat_summary_response)} records"
+                )
             else:
                 print(f"   ⚠️  StatSummary file not found in raw data directory")
                 stat_summary_response = None
@@ -563,25 +619,41 @@ def fetch_and_transform_local(
             # Load from existing file
             inventory_raw_file = raw_data_dir / "02_inventory_raw.json"
             if not inventory_raw_file.exists():
-                logger.warning("Inventory file not found", hotel_code=hotel_code, file_path=str(inventory_raw_file))
+                logger.warning(
+                    "Inventory file not found",
+                    hotel_code=hotel_code,
+                    file_path=str(inventory_raw_file),
+                )
             else:
                 with open(inventory_raw_file, "r") as f:
                     inventory_response = json.load(f)
-                logger.info("Raw inventory loaded", hotel_code=hotel_code, file_path=str(inventory_raw_file))
+                logger.info(
+                    "Raw inventory loaded", hotel_code=hotel_code, file_path=str(inventory_raw_file)
+                )
         else:
             # Extract rate codes from config (ConfigType=RATECODE) — one request per rate code per window
             rate_codes = []
             if config_response:
                 try:
                     from src.models.host.config import HotelConfigResponse
-                    cfg = HotelConfigResponse(**config_response) if isinstance(config_response, dict) else config_response
+
+                    cfg = (
+                        HotelConfigResponse(**config_response)
+                        if isinstance(config_response, dict)
+                        else config_response
+                    )
                     rate_codes = [item.code for item in cfg.get_config_by_type("RATECODE")]
                     print(f"   Found {len(rate_codes)} rate codes: {rate_codes}")
                 except Exception as e:
-                    logger.warning("Could not extract rate codes from config", hotel_code=hotel_code, error=str(e))
+                    logger.warning(
+                        "Could not extract rate codes from config",
+                        hotel_code=hotel_code,
+                        error=str(e),
+                    )
 
             # Single 30-day window from today
             from datetime import date
+
             inv_start = date.today()
             inv_end = inv_start + timedelta(days=29)
             w_from = inv_start.isoformat()
@@ -594,16 +666,32 @@ def fetch_and_transform_local(
                 # One request per rate code for the 30-day window
                 for rc in rate_codes:
                     try:
-                        resp = client.get_inventory(from_date=w_from, to_date=w_to, rate_code=rc, hotel_code=hotel_code)
-                        items = resp if isinstance(resp, list) else resp.get("InventoryGrid", resp.get("inventory", [resp] if resp else []))
+                        resp = client.get_inventory(
+                            from_date=w_from, to_date=w_to, rate_code=rc, hotel_code=hotel_code
+                        )
+                        items = (
+                            resp
+                            if isinstance(resp, list)
+                            else resp.get(
+                                "InventoryGrid", resp.get("inventory", [resp] if resp else [])
+                            )
+                        )
                         all_inventory.extend(items if isinstance(items, list) else [resp])
                     except Exception as e:
                         print(f"   rate_code={rc}: failed ({e})")
             else:
                 # No rate codes — single request for the 30-day window
                 try:
-                    resp = client.get_inventory(from_date=w_from, to_date=w_to, hotel_code=hotel_code)
-                    items = resp if isinstance(resp, list) else resp.get("InventoryGrid", resp.get("inventory", [resp] if resp else []))
+                    resp = client.get_inventory(
+                        from_date=w_from, to_date=w_to, hotel_code=hotel_code
+                    )
+                    items = (
+                        resp
+                        if isinstance(resp, list)
+                        else resp.get(
+                            "InventoryGrid", resp.get("inventory", [resp] if resp else [])
+                        )
+                    )
                     all_inventory.extend(items if isinstance(items, list) else [resp])
                 except Exception as e:
                     print(f"   window={w_from}/{w_to}: failed ({e})")
@@ -615,7 +703,9 @@ def fetch_and_transform_local(
             inventory_raw_file = hotel_dir / "02_inventory_raw.json"
             with open(inventory_raw_file, "w") as f:
                 json.dump(inventory_response, f, indent=2)
-            logger.info("Raw inventory saved", hotel_code=hotel_code, file_path=str(inventory_raw_file))
+            logger.info(
+                "Raw inventory saved", hotel_code=hotel_code, file_path=str(inventory_raw_file)
+            )
 
     except Exception as e:
         logger.error("Error with inventory", hotel_code=hotel_code, error=str(e))
@@ -624,6 +714,7 @@ def fetch_and_transform_local(
     if DB_IMPORT_AVAILABLE:
         # Check if DATABASE_URL is configured
         import os
+
         database_url = os.environ.get("DATABASE_URL")
         db_name = os.environ.get("DB_NAME")
 
@@ -646,21 +737,23 @@ def fetch_and_transform_local(
                     import_reservations_to_postgres(
                         json_file_path=str(reservations_from_statdaily_file),
                         table_name="reservations_from_statdaily",
-                        truncate=True
+                        truncate=True,
                     )
-                    print(f"   ✅ Reservations from StatDaily imported to PostgreSQL (table: reservations_from_statdaily)")
+                    print(
+                        f"   ✅ Reservations from StatDaily imported to PostgreSQL (table: reservations_from_statdaily)"
+                    )
                 elif reservations_with_invoices_file.exists():
                     import_reservations_to_postgres(
                         json_file_path=str(reservations_with_invoices_file),
                         table_name="reservations2",
-                        truncate=True
+                        truncate=True,
                     )
                     print(f"   ✅ Reservations (with invoices) imported to PostgreSQL")
                 elif reservations_transformed_file.exists():
                     import_reservations_to_postgres(
                         json_file_path=str(reservations_transformed_file),
                         table_name="reservations2",
-                        truncate=True
+                        truncate=True,
                     )
                     print(f"   ✅ Reservations imported to PostgreSQL")
                 else:
@@ -672,7 +765,7 @@ def fetch_and_transform_local(
                     import_stat_daily_to_postgres(
                         json_file_path=str(stat_daily_raw_file),
                         table_name="stat_daily",
-                        truncate=True
+                        truncate=True,
                     )
                     print(f"   ✅ StatDaily data imported to PostgreSQL")
                 else:
@@ -684,7 +777,7 @@ def fetch_and_transform_local(
                     import_stat_summary_to_postgres(
                         json_file_path=str(stat_summary_raw_file),
                         table_name="stat_summary",
-                        truncate=True
+                        truncate=True,
                     )
                     print(f"   ✅ StatSummary data imported to PostgreSQL (validation table)")
                 else:
@@ -713,31 +806,31 @@ def main():
         "--hotel-code",
         type=str,
         required=False,
-        help="Hotel code to extract data for (e.g., HOTEL001) - required if --raw-data-path not provided"
+        help="Hotel code to extract data for (e.g., HOTEL001) - required if --raw-data-path not provided",
     )
     parser.add_argument(
         "--from-date",
         type=str,
         required=False,
-        help="From date for incremental sync (e.g., 1970-01-01T00:00:00Z for full sync) - required if --raw-data-path not provided"
+        help="From date for incremental sync (e.g., 1970-01-01T00:00:00Z for full sync) - required if --raw-data-path not provided",
     )
     parser.add_argument(
         "--raw-data-path",
         type=str,
         required=False,
-        help="Path to raw data directory in data_extracts (e.g., PTLISLSA_20251123_165155 or data_extracts/PTLISLSA_20251123_165155) - if provided, skips API calls"
+        help="Path to raw data directory in data_extracts (e.g., PTLISLSA_20251123_165155 or data_extracts/PTLISLSA_20251123_165155) - if provided, skips API calls",
     )
     parser.add_argument(
         "--stat-daily-start-date",
         type=str,
         required=False,
-        help="StatDaily start date in YYYY-MM-DD format (defaults to 95 days ago)"
+        help="StatDaily start date in YYYY-MM-DD format (defaults to 95 days ago)",
     )
     parser.add_argument(
         "--stat-daily-end-date",
         type=str,
         required=False,
-        help="StatDaily end date in YYYY-MM-DD format (defaults to 30 days ago)"
+        help="StatDaily end date in YYYY-MM-DD format (defaults to 30 days ago)",
     )
 
     args = parser.parse_args()
@@ -745,7 +838,9 @@ def main():
     # Validate arguments
     if args.raw_data_path is None:
         if not args.hotel_code or not args.from_date:
-            parser.error("Either --raw-data-path OR both --hotel-code and --from-date must be provided")
+            parser.error(
+                "Either --raw-data-path OR both --hotel-code and --from-date must be provided"
+            )
 
     fetch_and_transform_local(
         hotel_code=args.hotel_code,

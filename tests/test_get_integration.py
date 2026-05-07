@@ -32,9 +32,9 @@ from pathlib import Path
 # Add src to path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from src.config import configure_logging, get_logger
 from src.clients.esb_client import ClimberESBClient
 from src.clients.host_api_client import HostPMSAPIClient
+from src.config import configure_logging, get_logger
 from src.services.orchestration_service import HostPMSConnectorOrchestrator
 
 logger = get_logger(__name__)
@@ -80,6 +80,7 @@ async def test_fetch_integration():
     except Exception as e:
         print(f"\n✗ Error: {e}")
         import traceback
+
         traceback.print_exc()
         return False
 
@@ -140,6 +141,7 @@ async def test_single_hotel_credentials(hotel_code: str):
     except Exception as e:
         print(f"\n✗ Error: {e}")
         import traceback
+
         traceback.print_exc()
         return False
 
@@ -178,6 +180,7 @@ async def test_list_hotels():
     except Exception as e:
         print(f"\n✗ Error: {e}")
         import traceback
+
         traceback.print_exc()
         return False
 
@@ -209,18 +212,17 @@ async def test_invalid_subscription_key():
         print(f"\nSuccess: {result['success']}")
         print(f"Hotel Code: {result['hotel_code']}")
 
-        if result.get('errors'):
+        if result.get("errors"):
             print(f"\nErrors ({len(result['errors'])}):")
-            for error in result['errors']:
+            for error in result["errors"]:
                 print(f"  - Step: {error.get('step', 'unknown')}")
                 print(f"    Type: {error.get('error_type', 'N/A')}")
                 print(f"    Message: {error.get('message', str(error))}")
 
         # Verify the error is an authentication error
-        if result.get('errors'):
+        if result.get("errors"):
             is_auth_error = any(
-                e.get('error_type') == 'AUTHENTICATION_FAILED'
-                for e in result['errors']
+                e.get("error_type") == "AUTHENTICATION_FAILED" for e in result["errors"]
             )
             if is_auth_error:
                 print("\n✓ Authentication error properly detected and handled!")
@@ -237,6 +239,7 @@ async def test_invalid_subscription_key():
     except Exception as e:
         print(f"\n✗ Error: {e}")
         import traceback
+
         traceback.print_exc()
         return False
 
@@ -253,8 +256,7 @@ async def test_process_single_hotel(hotel_code: str):
 
         print(f"\nInitializing test orchestrator...")
         orchestrator = LocalTestOrchestrator(
-            output_dir="./data_extracts",
-            use_real_esb=True  # Use real ESB to test getIntegration
+            output_dir="./data_extracts", use_real_esb=True  # Use real ESB to test getIntegration
         )
 
         print(f"Processing hotel: {hotel_code}")
@@ -271,23 +273,24 @@ async def test_process_single_hotel(hotel_code: str):
         print(f"\nSuccess: {result['success']}")
         print(f"Hotel Code: {result['hotel_code']}")
 
-        if result.get('errors'):
+        if result.get("errors"):
             print(f"\nErrors ({len(result['errors'])}):")
-            for error in result['errors']:
+            for error in result["errors"]:
                 print(f"  - [{error.get('step', 'unknown')}] {error.get('message', str(error))}")
 
-        if result.get('stats'):
+        if result.get("stats"):
             print(f"\nStatistics:")
-            for key, value in result['stats'].items():
+            for key, value in result["stats"].items():
                 print(f"  - {key}: {value}")
 
-        if result.get('s3_uploads'):
+        if result.get("s3_uploads"):
             print(f"\nS3 Uploads ({len(result['s3_uploads'])}):")
-            for key, upload in result['s3_uploads'].items():
+            for key, upload in result["s3_uploads"].items():
                 print(f"  - {key}: {upload.get('url', 'N/A')}")
 
         # Check for output files
         from pathlib import Path
+
         output_dir = Path("./data_extracts")
         if output_dir.exists():
             hotel_dirs = list(output_dir.glob(f"{hotel_code}_*"))
@@ -300,11 +303,12 @@ async def test_process_single_hotel(hotel_code: str):
                         size_kb = file.stat().st_size / 1024
                         print(f"    - {file.name} ({size_kb:.1f} KB)")
 
-        return result['success']
+        return result["success"]
 
     except Exception as e:
         print(f"\n✗ Error: {e}")
         import traceback
+
         traceback.print_exc()
         return False
 
@@ -317,7 +321,9 @@ def main():
     parser.add_argument("--test-fetch", action="store_true", help="Test fetching integration list")
     parser.add_argument("--test-single", metavar="HOTEL_CODE", help="Test single hotel credentials")
     parser.add_argument("--test-list", action="store_true", help="List all hotels (dry run)")
-    parser.add_argument("--test-invalid", action="store_true", help="Test invalid subscription key handling")
+    parser.add_argument(
+        "--test-invalid", action="store_true", help="Test invalid subscription key handling"
+    )
     parser.add_argument("--test-full", metavar="HOTEL_CODE", help="Full test with real API calls")
 
     args = parser.parse_args()
@@ -374,7 +380,9 @@ def main():
         if all_success:
             print("\n✓ All basic tests passed!")
             print("\nNext steps:")
-            print("  1. Test single hotel: python tests/test_get_integration.py --test-single PTFNCTVB")
+            print(
+                "  1. Test single hotel: python tests/test_get_integration.py --test-single PTFNCTVB"
+            )
             print("  2. Full test: python tests/test_get_integration.py --test-full PTFNCTVB")
         else:
             print("\n✗ Some tests failed")

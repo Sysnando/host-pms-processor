@@ -9,10 +9,10 @@ Usage:
     python3 example_manual_test.py
 """
 
-import json
 import asyncio
-from pathlib import Path
+import json
 from datetime import datetime
+from pathlib import Path
 
 # Setup
 FIXTURES_DIR = Path(__file__).parent / "tests" / "fixtures"
@@ -71,8 +71,10 @@ def example_1_load_and_inspect_fixtures():
     for room_inv in inventory["roomInventories"]:
         print(f"\n    {room_inv['roomCode']}:")
         for daily in room_inv["dailyInventories"]:
-            print(f"      {daily['date']} - Inv: {daily['inventory']}, "
-                  f"OOI: {daily['inventoryOOI']}, OOO: {daily['inventoryOOO']}")
+            print(
+                f"      {daily['date']} - Inv: {daily['inventory']}, "
+                f"OOI: {daily['inventoryOOI']}, OOO: {daily['inventoryOOO']}"
+            )
 
 
 def example_2_transform_data():
@@ -179,6 +181,7 @@ def example_4_mock_and_test_orchestration():
 
     try:
         from unittest.mock import AsyncMock, MagicMock
+
         from src.services.orchestration_service import HostPMSConnectorOrchestrator
 
         print("\nSetting up mock orchestration test...")
@@ -206,12 +209,16 @@ def example_4_mock_and_test_orchestration():
         # Mock S3
         orchestrator.s3_manager = MagicMock()
         orchestrator.s3_manager.upload_raw = MagicMock(
-            return_value={"key": "raw/HOTEL001/config/2024-10-26.json",
-                         "url": "s3://bucket/raw/..."}
+            return_value={
+                "key": "raw/HOTEL001/config/2024-10-26.json",
+                "url": "s3://bucket/raw/...",
+            }
         )
         orchestrator.s3_manager.upload_processed = MagicMock(
-            return_value={"key": "processed/HOTEL001/config/2024-10-26.json",
-                         "url": "s3://bucket/processed/..."}
+            return_value={
+                "key": "processed/HOTEL001/config/2024-10-26.json",
+                "url": "s3://bucket/processed/...",
+            }
         )
 
         # Mock SQS
@@ -259,6 +266,7 @@ def example_4_mock_and_test_orchestration():
     except Exception as e:
         print(f"\n  ✗ Error: {e}")
         import traceback
+
         traceback.print_exc()
 
 

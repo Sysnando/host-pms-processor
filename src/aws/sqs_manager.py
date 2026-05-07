@@ -2,7 +2,7 @@
 
 import json
 import uuid
-from typing import Any, Optional
+from typing import Any
 
 import boto3
 from botocore.exceptions import ClientError
@@ -33,7 +33,7 @@ class SQSManager:
         self.region = settings.aws.region
         self.sqs_client = boto3.client("sqs", **get_boto3_client_kwargs("sqs"))
         self.queue_name = settings.aws.sqs_queue_name
-        self._queue_url: Optional[str] = None
+        self._queue_url: str | None = None
 
         logger.info("SQS Manager initialized", queue_name=self.queue_name)
 
@@ -53,9 +53,7 @@ class SQSManager:
                 settings.aws, "sqs_queue_url", ""
             )
             explicit_url = (
-                explicit_url.strip().split("\n")[0].split("#")[0].strip()
-                if explicit_url
-                else ""
+                explicit_url.strip().split("\n")[0].split("#")[0].strip() if explicit_url else ""
             )
             if explicit_url and not self._is_placeholder_queue_url(explicit_url):
                 self._queue_url = explicit_url
@@ -140,16 +138,14 @@ class SQSManager:
                 hotel_code_s3=hotel_code_s3,
                 error=str(e),
             )
-            raise SQSError(
-                f"Failed to send processor message: {str(e)}"
-            ) from e
+            raise SQSError(f"Failed to send processor message: {str(e)}") from e
 
     def send_message(
         self,
         hotel_code: str,
         file_type: str,
         file_key: str,
-        metadata: Optional[dict[str, Any]] = None,
+        metadata: dict[str, Any] | None = None,
     ) -> dict[str, str]:
         """Send a message to the SQS FIFO queue.
 
@@ -188,9 +184,7 @@ class SQSManager:
                 message_body.update(metadata)
 
             # Generate deduplication ID to prevent duplicate messages
-            deduplication_id = str(
-                uuid.uuid5(uuid.NAMESPACE_DNS, f"{hotel_code}{file_key}")
-            )
+            deduplication_id = str(uuid.uuid5(uuid.NAMESPACE_DNS, f"{hotel_code}{file_key}"))
 
             # Send to FIFO queue
             response = self.sqs_client.send_message(
@@ -233,9 +227,7 @@ class SQSManager:
                 file_type=file_type,
                 error=str(e),
             )
-            raise SQSError(
-                f"Unexpected error sending SQS message: {str(e)}"
-            ) from e
+            raise SQSError(f"Unexpected error sending SQS message: {str(e)}") from e
 
     def send_batch(
         self,

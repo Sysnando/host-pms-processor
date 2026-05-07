@@ -22,6 +22,7 @@ class SegmentItem(BaseModel):
         default=9999,
         description="Sorting order position, 9999 is default",
     )
+
     class Config:
         extra = "allow"
         populate_by_name = True
@@ -30,33 +31,23 @@ class SegmentItem(BaseModel):
 class SegmentCollection(BaseModel):
     """Collection of segments organized by type, matching Climber expected format."""
 
-    agencies: list[SegmentItem] = Field(
-        default_factory=list, description="Agency segments"
-    )
+    agencies: list[SegmentItem] = Field(default_factory=list, description="Agency segments")
     channels: list[SegmentItem] = Field(
         default_factory=list, description="Distribution channel segments"
     )
-    companies: list[SegmentItem] = Field(
-        default_factory=list, description="Company segments"
-    )
+    companies: list[SegmentItem] = Field(default_factory=list, description="Company segments")
     cros: list[SegmentItem] = Field(
         default_factory=list, description="Customer Relations Organization segments"
     )
-    groups: list[SegmentItem] = Field(
-        default_factory=list, description="Group segments"
-    )
-    packages: list[SegmentItem] = Field(
-        default_factory=list, description="Package segments"
-    )
+    groups: list[SegmentItem] = Field(default_factory=list, description="Group segments")
+    packages: list[SegmentItem] = Field(default_factory=list, description="Package segments")
     rates: list[SegmentItem] = Field(
         default_factory=list, description="Rate plan segments (price lists)"
     )
     rooms: list[SegmentItem] = Field(
         default_factory=list, description="Room type segments (categories)"
     )
-    segments: list[SegmentItem] = Field(
-        default_factory=list, description="Market segment segments"
-    )
+    segments: list[SegmentItem] = Field(default_factory=list, description="Market segment segments")
     sub_segments: list[SegmentItem] = Field(
         default_factory=list,
         alias="subSegments",
@@ -83,7 +74,5 @@ class SegmentCollection(BaseModel):
             "rates": [item.model_dump(by_alias=True) for item in self.rates],
             "rooms": [item.model_dump(by_alias=True) for item in self.rooms],
             "segments": [item.model_dump(by_alias=True) for item in self.segments],
-            "subSegments": [
-                item.model_dump(by_alias=True) for item in self.sub_segments
-            ],
+            "subSegments": [item.model_dump(by_alias=True) for item in self.sub_segments],
         }

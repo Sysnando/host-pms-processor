@@ -42,9 +42,7 @@ def mock_sqs_manager():
 @pytest.fixture
 def mock_esb_client():
     """Create a mock ClimberESBClient."""
-    with patch(
-        "src.services.orchestration_service.ClimberESBClient"
-    ) as mock:
+    with patch("src.services.orchestration_service.ClimberESBClient") as mock:
         client = Mock()
         client.get_hotels = AsyncMock(
             return_value=[
@@ -64,9 +62,7 @@ def mock_esb_client():
 @pytest.fixture
 def mock_host_api_client():
     """Create a mock HostPMSAPIClient."""
-    with patch(
-        "src.services.orchestration_service.HostPMSAPIClient"
-    ) as mock:
+    with patch("src.services.orchestration_service.HostPMSAPIClient") as mock:
         client = Mock()
         client.get_hotel_config = AsyncMock(
             return_value={
@@ -297,9 +293,7 @@ class TestOrchestrationIntegration:
     ):
         """Test orchestrator gracefully handles API errors."""
         # Make ESB client fail
-        mock_esb_client.get_hotel_parameters.side_effect = Exception(
-            "API Error"
-        )
+        mock_esb_client.get_hotel_parameters.side_effect = Exception("API Error")
 
         orchestrator = HostPMSConnectorOrchestrator()
         result = await orchestrator.process_hotel("HOTEL001")

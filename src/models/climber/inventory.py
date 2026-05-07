@@ -1,7 +1,6 @@
 """Pydantic models for Climber standardized inventory format."""
 
 from datetime import datetime
-from typing import Optional
 
 from pydantic import BaseModel, Field
 
@@ -18,9 +17,7 @@ class RoomInventoryItem(BaseModel):
         alias="calendarDate",
         description="Date range in ISO format, e.g., '[2021-02-02,)' for open-ended or '[2021-02-02,2021-02-03)' for specific range",
     )
-    inventory: int = Field(
-        default=0, description="Number of available rooms of this type"
-    )
+    inventory: int = Field(default=0, description="Number of available rooms of this type")
     inventory_ooi: int = Field(
         default=0,
         alias="inventoryOOI",
@@ -32,7 +29,8 @@ class RoomInventoryItem(BaseModel):
         description="Out of Occupation flag (0=FALSE, 1=TRUE)",
     )
     room_code: str = Field(
-        alias="roomCode", description="Room type/category code (same as in segments and reservations)"
+        alias="roomCode",
+        description="Room type/category code (same as in segments and reservations)",
     )
 
     class Config:
@@ -62,29 +60,22 @@ class RoomInventoryData(BaseModel):
         Returns:
             Dictionary with camelCase keys for Climber API
         """
-        return {
-            "roomInventory": [
-                item.model_dump(by_alias=True) for item in self.room_inventory
-            ]
-        }
+        return {"roomInventory": [item.model_dump(by_alias=True) for item in self.room_inventory]}
 
 
 class RoomInventoryDay(BaseModel):
     """Legacy: Single day's inventory for a room in Climber format."""
 
     calendar_date: str = Field(
-        ..., description="Calendar date range in ISO format, e.g., '[2021-02-02,)' or '[2021-02-02,2021-02-03)'"
+        ...,
+        description="Calendar date range in ISO format, e.g., '[2021-02-02,)' or '[2021-02-02,2021-02-03)'",
     )
     inventory: int = Field(default=0, description="Number of available rooms")
-    inventory_ooi: int = Field(
-        default=0, alias="inventoryOOI", description="Out of inventory"
-    )
-    inventory_ooo: int = Field(
-        default=0, alias="inventoryOOO", description="Out of order"
-    )
+    inventory_ooi: int = Field(default=0, alias="inventoryOOI", description="Out of inventory")
+    inventory_ooo: int = Field(default=0, alias="inventoryOOO", description="Out of order")
     room_code: str = Field(alias="roomCode", description="Room type/code identifier")
-    rate: Optional[float] = None
-    status: Optional[str] = None
+    rate: float | None = None
+    status: str | None = None
 
     class Config:
         populate_by_name = True

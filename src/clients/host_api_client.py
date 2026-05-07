@@ -3,7 +3,7 @@
 import asyncio
 import re
 import time
-from typing import Any, Optional, Tuple
+from typing import Any
 
 import httpx
 from structlog import get_logger
@@ -49,9 +49,9 @@ class HostAPIRateLimitError(HostAPIClientError):
     def __init__(
         self,
         message: str,
-        rate_limit: Optional[int] = None,
-        time_window: Optional[str] = None,
-        retry_after: Optional[float] = None,
+        rate_limit: int | None = None,
+        time_window: str | None = None,
+        retry_after: float | None = None,
     ):
         super().__init__(message)
         self.rate_limit = rate_limit
@@ -62,7 +62,7 @@ class HostAPIRateLimitError(HostAPIClientError):
 class HostPMSAPIClient:
     """Client for Host PMS API endpoints."""
 
-    def __init__(self, subscription_key: Optional[str] = None):
+    def __init__(self, subscription_key: str | None = None):
         """Initialize the Host PMS API client with settings.
 
         Args:
@@ -78,9 +78,8 @@ class HostPMSAPIClient:
             self.subscription_key = subscription_key
         else:
             self.subscription_key = (
-                (settings.host_api_subscription_key or settings.host_pms.subscription_key or "").strip()
-                or "test-subscription-key-default"
-            )
+                settings.host_api_subscription_key or settings.host_pms.subscription_key or ""
+            ).strip() or "test-subscription-key-default"
 
         self.timeout = settings.host_pms.request_timeout
         self.max_retries = settings.host_pms.max_retries
@@ -90,7 +89,7 @@ class HostPMSAPIClient:
     @staticmethod
     def _parse_rate_limit_info(
         response: httpx.Response,
-    ) -> Tuple[Optional[int], Optional[str], Optional[float]]:
+    ) -> tuple[int | None, str | None, float | None]:
         """Parse rate limit information from API response headers and body.
 
         Returns:
@@ -108,14 +107,18 @@ class HostPMSAPIClient:
                     if response.headers.get("content-type", "").startswith("application/json"):
                         error_data = response.json()
                         if isinstance(error_data, dict):
-                            error_message = error_data.get("message", "") or error_data.get("error", "") or str(error_data)
+                            error_message = (
+                                error_data.get("message", "")
+                                or error_data.get("error", "")
+                                or str(error_data)
+                            )
                 except Exception:
                     pass
 
                 # Parse "maximum admitted X per Y"
-                match = re.search(r'maximum admitted (\d+) per (\w+)', error_message, re.IGNORECASE)
+                match = re.search(r"maximum admitted (\d+) per (\w+)", error_message, re.IGNORECASE)
                 if not match:
-                    match = re.search(r'(\d+) per (\w+)', error_message, re.IGNORECASE)
+                    match = re.search(r"(\d+) per (\w+)", error_message, re.IGNORECASE)
                 if match:
                     rate_limit = int(match.group(1))
                     time_window = match.group(2).capitalize()
@@ -151,9 +154,9 @@ class HostPMSAPIClient:
         self,
         method: str,
         endpoint: str,
-        data: Optional[dict[str, Any]] = None,
-        params: Optional[dict[str, Any]] = None,
-        hotel_code: Optional[str] = None,
+        data: dict[str, Any] | None = None,
+        params: dict[str, Any] | None = None,
+        hotel_code: str | None = None,
     ) -> dict[str, Any]:
         """Make an HTTP request to the Host PMS API with retry logic.
 
@@ -218,14 +221,12 @@ class HostPMSAPIClient:
                             endpoint=endpoint,
                             status_code=response.status_code,
                         )
-                        raise HostAPINotFoundError(
-                            f"Resource not found: {endpoint}"
-                        )
+                        raise HostAPINotFoundError(f"Resource not found: {endpoint}")
 
                     # Handle server errors with retry
                     if response.status_code >= 500:
                         if attempt < self.max_retries - 1:
-                            wait_time = self.retry_backoff_base ** attempt
+                            wait_time = self.retry_backoff_base**attempt
                             logger.warning(
                                 "Host API server error, retrying",
                                 hotel_code=hotel_code,
@@ -244,9 +245,7 @@ class HostPMSAPIClient:
                                 endpoint=endpoint,
                                 status_code=response.status_code,
                             )
-                            raise HostAPIServerError(
-                                f"Server error at {endpoint}: {response.text}"
-                            )
+                            raise HostAPIServerError(f"Server error at {endpoint}: {response.text}")
 
                     # Handle client errors (non-auth, non-404)
                     if 400 <= response.status_code < 500:
@@ -257,9 +256,7 @@ class HostPMSAPIClient:
                             status_code=response.status_code,
                             response_text=response.text[:200],  # Limit error text
                         )
-                        raise HostAPIClientError(
-                            f"Client error at {endpoint}: {response.text}"
-                        )
+                        raise HostAPIClientError(f"Client error at {endpoint}: {response.text}")
 
                     # Handle success
                     if response.status_code in (200, 201, 204):
@@ -287,7 +284,7 @@ class HostPMSAPIClient:
 
             except httpx.TimeoutException as e:
                 if attempt < self.max_retries - 1:
-                    wait_time = self.retry_backoff_base ** attempt
+                    wait_time = self.retry_backoff_base**attempt
                     logger.warning(
                         "Host API request timeout, retrying",
                         hotel_code=hotel_code,
@@ -304,13 +301,11 @@ class HostPMSAPIClient:
                         hotel_code=hotel_code,
                         endpoint=endpoint,
                     )
-                    raise HostAPIClientError(
-                        f"Request timeout for {endpoint}"
-                    ) from e
+                    raise HostAPIClientError(f"Request timeout for {endpoint}") from e
 
             except httpx.RequestError as e:
                 if attempt < self.max_retries - 1:
-                    wait_time = self.retry_backoff_base ** attempt
+                    wait_time = self.retry_backoff_base**attempt
                     logger.warning(
                         "Host API request error, retrying",
                         hotel_code=hotel_code,
@@ -329,9 +324,7 @@ class HostPMSAPIClient:
                         endpoint=endpoint,
                         error=str(e),
                     )
-                    raise HostAPIClientError(
-                        f"Request failed for {endpoint}: {str(e)}"
-                    ) from e
+                    raise HostAPIClientError(f"Request failed for {endpoint}: {str(e)}") from e
 
         raise HostAPIClientError(f"Failed to complete request to {endpoint}")
 
@@ -339,9 +332,9 @@ class HostPMSAPIClient:
         self,
         method: str,
         endpoint: str,
-        data: Optional[dict[str, Any]] = None,
-        params: Optional[dict[str, Any]] = None,
-        hotel_code: Optional[str] = None,
+        data: dict[str, Any] | None = None,
+        params: dict[str, Any] | None = None,
+        hotel_code: str | None = None,
     ) -> dict[str, Any]:
         """Make an async HTTP request to the Host PMS API with retry logic.
 
@@ -410,9 +403,7 @@ class HostPMSAPIClient:
                             endpoint=endpoint,
                             status_code=response.status_code,
                         )
-                        raise HostAPINotFoundError(
-                            f"Resource not found: {endpoint}"
-                        )
+                        raise HostAPINotFoundError(f"Resource not found: {endpoint}")
 
                     # Handle rate limit errors (429) with Retry-After
                     if response.status_code == 429:
@@ -488,9 +479,7 @@ class HostPMSAPIClient:
                                 endpoint=endpoint,
                                 status_code=response.status_code,
                             )
-                            raise HostAPIServerError(
-                                f"Server error at {endpoint}: {response.text}"
-                            )
+                            raise HostAPIServerError(f"Server error at {endpoint}: {response.text}")
 
                     # Handle client errors (non-auth, non-404)
                     if 400 <= response.status_code < 500:
@@ -501,9 +490,7 @@ class HostPMSAPIClient:
                             status_code=response.status_code,
                             response_text=response.text[:200],  # Limit error text
                         )
-                        raise HostAPIClientError(
-                            f"Client error at {endpoint}: {response.text}"
-                        )
+                        raise HostAPIClientError(f"Client error at {endpoint}: {response.text}")
 
                     # Handle success
                     if response.status_code in (200, 201, 204):
@@ -549,9 +536,7 @@ class HostPMSAPIClient:
                         hotel_code=hotel_code,
                         endpoint=endpoint,
                     )
-                    raise HostAPIClientError(
-                        f"Request timeout for {endpoint}"
-                    ) from e
+                    raise HostAPIClientError(f"Request timeout for {endpoint}") from e
 
             except httpx.RequestError as e:
                 general_attempts += 1
@@ -575,9 +560,7 @@ class HostPMSAPIClient:
                         endpoint=endpoint,
                         error=str(e),
                     )
-                    raise HostAPIClientError(
-                        f"Request failed for {endpoint}: {str(e)}"
-                    ) from e
+                    raise HostAPIClientError(f"Request failed for {endpoint}: {str(e)}") from e
 
         raise HostAPIClientError(f"Failed to complete request to {endpoint}")
 
@@ -612,7 +595,7 @@ class HostPMSAPIClient:
     def get_reservations(
         self,
         hotel_code: str,
-        update_from: Optional[str] = None,
+        update_from: str | None = None,
     ) -> dict[str, Any]:
         """Fetch all reservations from Host PMS API with pagination support.
 
@@ -666,7 +649,9 @@ class HostPMSAPIClient:
             return {"Reservations": []}
 
         # Get total rows from first reservation
-        total_rows = first_page_reservations[0].get("TotalRows") if first_page_reservations else None
+        total_rows = (
+            first_page_reservations[0].get("TotalRows") if first_page_reservations else None
+        )
 
         if total_rows is None:
             # If TotalRows is missing, use the count of first page as total
@@ -677,7 +662,9 @@ class HostPMSAPIClient:
                 first_page_count=total_rows,
             )
 
-        total_pages = (total_rows // page_size) + (1 if total_rows % page_size else 0) if total_rows else 1
+        total_pages = (
+            (total_rows // page_size) + (1 if total_rows % page_size else 0) if total_rows else 1
+        )
 
         logger.info(
             "Pagination started",
@@ -763,8 +750,8 @@ class HostPMSAPIClient:
         self,
         from_date: str,
         to_date: str,
-        rate_code: Optional[str] = None,
-        hotel_code: Optional[str] = None,
+        rate_code: str | None = None,
+        hotel_code: str | None = None,
     ) -> dict[str, Any]:
         """Fetch room inventory and availability from Host PMS API.
 
@@ -796,9 +783,8 @@ class HostPMSAPIClient:
         if rate_code:
             params["rateCode"] = rate_code
 
-        # Build and print the full request URL for debugging
         full_url = str(httpx.URL(f"{self.base_url}/ExternalRms/InventoryGrid", params=params))
-        print(f"[get_inventory] GET {full_url}")
+        logger.debug("get_inventory request", url=full_url)
 
         logger.info(
             "Fetching inventory from Host PMS API",
@@ -821,191 +807,10 @@ class HostPMSAPIClient:
         )
         return response
 
-    async def get_inventory_all_rates(
-        self,
-        config_response: Any,
-        from_date: str,
-        to_date: str,
-    ) -> dict[str, Any]:
-        """Fetch inventory for all rate codes in parallel with concurrency limit.
-
-        Extracts rate codes from config, then fetches inventory for each rate code
-        in parallel with a maximum of 5 concurrent requests.
-
-        Automatically splits date ranges larger than 30 days into 30-day chunks
-        to comply with the InventoryGrid API's "Max days: 30" limitation.
-
-        Args:
-            config_response: Hotel configuration response (HotelConfigResponse or dict)
-            from_date: Start date in ISO format (e.g., "2024-01-01")
-            to_date: End date in ISO format (e.g., "2024-01-31")
-
-        Returns:
-            Combined inventory data with all room inventories
-
-        Raises:
-            HostAPIClientError: If the API requests fail
-        """
-        import asyncio
-        from datetime import datetime, timedelta
-        from src.models.host.config import HotelConfigResponse
-
-        # Convert dict to HotelConfigResponse if needed
-        if isinstance(config_response, dict):
-            config_model = HotelConfigResponse(**config_response)
-        else:
-            config_model = config_response
-
-        # Extract hotel code
-        hotel_code = config_model.hotel_info.hotel_code
-
-        # Extract rate codes from config (ConfigType=RATECODE)
-        rate_codes = [item.code for item in config_model.get_config_by_type("RATECODE")]
-
-        if not rate_codes:
-            logger.warning(
-                "No rate codes found in config, fetching inventory without rate filter",
-                hotel_code=hotel_code,
-            )
-            # Fallback: fetch without rate code filter
-            return self.get_inventory(
-                hotel_code=hotel_code,
-                start_date=from_date,
-                end_date=to_date,
-            )
-
-        # Split date range into 30-day chunks
-        start_dt = datetime.fromisoformat(from_date.replace('Z', '+00:00') if 'Z' in from_date else from_date)
-        end_dt = datetime.fromisoformat(to_date.replace('Z', '+00:00') if 'Z' in to_date else to_date)
-
-        date_chunks = []
-        current_start = start_dt
-        while current_start < end_dt:
-            current_end = min(current_start + timedelta(days=30), end_dt)
-            date_chunks.append((
-                current_start.strftime("%Y-%m-%d"),
-                current_end.strftime("%Y-%m-%d")
-            ))
-            current_start = current_end + timedelta(days=1)
-
-        logger.info(
-            "Fetching inventory for all rate codes (ConfigType=RATECODE) in parallel",
-            hotel_code=hotel_code,
-            rate_count=len(rate_codes),
-            rate_codes=rate_codes[:10] if len(rate_codes) > 10 else rate_codes,  # Log first 10 rate codes
-            from_date=from_date,
-            to_date=to_date,
-            date_chunks=len(date_chunks),
-            max_concurrent=5,
-        )
-
-        # Create semaphore to limit concurrent requests to 5
-        semaphore = asyncio.Semaphore(5)
-
-        async def fetch_inventory_for_rate_and_chunk(rate_code: str, chunk_from: str, chunk_to: str) -> dict[str, Any]:
-            """Fetch inventory for a single rate code and date chunk with semaphore."""
-            async with semaphore:
-                try:
-                    logger.debug(
-                        "Fetching inventory for rate code and date chunk",
-                        hotel_code=hotel_code,
-                        rate_code=rate_code,
-                        chunk_from=chunk_from,
-                        chunk_to=chunk_to,
-                    )
-
-                    params: dict[str, Any] = {
-                        "fromDate": chunk_from,
-                        "toDate": chunk_to,
-                    }
-                    if rate_code:
-                        params["rateCode"] = rate_code
-
-                    response = await self._make_request_async(
-                        "GET", "/ExternalRms/InventoryGrid", params=params, hotel_code=hotel_code
-                    )
-
-                    # Handle both list and dict responses
-                    if isinstance(response, list):
-                        # API returned a list directly
-                        item_count = len(response)
-                        normalized_response = {"roomInventories": response}
-                    elif isinstance(response, dict):
-                        # API returned a dict with roomInventories key
-                        item_count = len(response.get("roomInventories", []))
-                        normalized_response = response
-                    else:
-                        # Unexpected response type
-                        logger.warning(
-                            "Unexpected response type from InventoryGrid API",
-                            hotel_code=hotel_code,
-                            rate_code=rate_code,
-                            response_type=type(response).__name__,
-                        )
-                        normalized_response = {"roomInventories": []}
-                        item_count = 0
-
-                    logger.debug(
-                        "Successfully fetched inventory for rate code and chunk",
-                        hotel_code=hotel_code,
-                        rate_code=rate_code,
-                        chunk_from=chunk_from,
-                        chunk_to=chunk_to,
-                        item_count=item_count,
-                    )
-
-                    return normalized_response
-
-                except Exception as e:
-                    logger.warning(
-                        "Failed to fetch inventory for rate code and chunk",
-                        hotel_code=hotel_code,
-                        rate_code=rate_code,
-                        chunk_from=chunk_from,
-                        chunk_to=chunk_to,
-                        error=str(e),
-                    )
-                    # Return empty response for failed requests
-                    return {"roomInventories": []}
-
-        # Create tasks for all rate codes × all date chunks
-        tasks = []
-        # for rate_code in rate_codes:
-            # for chunk_from, chunk_to in date_chunks:
-                # tasks.append(fetch_inventory_for_rate_and_chunk(rate_code, chunk_from, chunk_to))
-
-        logger.info(
-            "Fetching inventory data",
-            hotel_code=hotel_code,
-            total_requests=len(tasks),
-            rate_codes=len(rate_codes),
-            date_chunks=len(date_chunks),
-        )
-
-        # Fetch inventory for all rate codes × date chunks in parallel
-        results = await asyncio.gather(*tasks, return_exceptions=False)
-
-        # Combine all room inventories from all requests
-        all_room_inventories = []
-        for result in results:
-            if result and "roomInventories" in result:
-                all_room_inventories.extend(result["roomInventories"])
-
-        logger.info(
-            "Successfully fetched inventory for all rate codes and date chunks",
-            hotel_code=hotel_code,
-            rate_count=len(rate_codes),
-            date_chunks=len(date_chunks),
-            total_requests=len(tasks),
-            total_items=len(all_room_inventories),
-        )
-
-        return {"roomInventories": all_room_inventories}
-
     def get_revenue(
         self,
         hotel_code: str,
-        update_from: Optional[str] = None,
+        update_from: str | None = None,
     ) -> dict[str, Any]:
         """Fetch financial transactions from Host PMS API.
 
@@ -1050,7 +855,7 @@ class HostPMSAPIClient:
     def get_stat_daily(
         self,
         hotel_date_filter: str,
-        hotel_code: Optional[str] = None,
+        hotel_code: str | None = None,
     ) -> dict[str, Any]:
         """Fetch daily statistics from Host PMS API (synchronous).
 
@@ -1101,7 +906,7 @@ class HostPMSAPIClient:
     async def get_stat_daily_async(
         self,
         hotel_date_filter: str,
-        hotel_code: Optional[str] = None,
+        hotel_code: str | None = None,
     ) -> dict[str, Any]:
         """Fetch daily statistics from Host PMS API (asynchronous).
 
@@ -1122,11 +927,6 @@ class HostPMSAPIClient:
         Raises:
             HostAPIClientError: If the API request fails
         """
-        # logger.info(
-        #     "Fetching StatDaily from Host PMS API (async)",
-        #     hotel_code=hotel_code,
-        #     hotel_date_filter=hotel_date_filter,
-        # )
         params = {
             "hoteldatefilter": hotel_date_filter,
         }
@@ -1153,7 +953,7 @@ class HostPMSAPIClient:
         self,
         from_date: str,
         to_date: str,
-        hotel_code: Optional[str] = None,
+        hotel_code: str | None = None,
     ) -> list[dict[str, Any]]:
         """Fetch daily statistics summary from Host PMS API.
 

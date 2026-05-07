@@ -65,9 +65,7 @@ class ConfigTransformer:
                     "Failed to parse host config response",
                     error=str(e),
                 )
-                raise ValueError(
-                    f"Invalid host config response format: {str(e)}"
-                ) from e
+                raise ValueError(f"Invalid host config response format: {str(e)}") from e
 
         hotel_code = host_config.hotel_info.hotel_code
         hotel_name = host_config.hotel_info.hotel_name
@@ -116,7 +114,9 @@ class ConfigTransformer:
         segment_collection = SegmentCollection()
 
         # Transform ROOM CATEGORIES to rooms (CATEGORY type)
-        logger.info("Transforming room categories", hotel_code=hotel_code, room_count=len(host_config.rooms))
+        logger.info(
+            "Transforming room categories", hotel_code=hotel_code, room_count=len(host_config.rooms)
+        )
         for item in host_config.rooms:
             try:
                 segment_item = ConfigTransformer._transform_config_item_to_segment(item)
@@ -132,7 +132,9 @@ class ConfigTransformer:
                 continue
 
         # Transform SEGMENT items (market segments)
-        logger.info("Transforming segments", hotel_code=hotel_code, segment_count=len(host_config.segments))
+        logger.info(
+            "Transforming segments", hotel_code=hotel_code, segment_count=len(host_config.segments)
+        )
         for item in host_config.segments:
             try:
                 segment_item = ConfigTransformer._transform_config_item_to_segment(item)
@@ -165,7 +167,9 @@ class ConfigTransformer:
 
         # Transform DIST CHANNEL items to channels
         logger.info(
-            "Transforming distribution channels", hotel_code=hotel_code, count=len(host_config.channels)
+            "Transforming distribution channels",
+            hotel_code=hotel_code,
+            count=len(host_config.channels),
         )
         for item in host_config.channels:
             try:
@@ -196,7 +200,9 @@ class ConfigTransformer:
                 continue
 
         # Transform PRICELIST items to rates
-        logger.info("Transforming price lists", hotel_code=hotel_code, count=len(host_config.price_lists))
+        logger.info(
+            "Transforming price lists", hotel_code=hotel_code, count=len(host_config.price_lists)
+        )
         for item in host_config.price_lists:
             try:
                 segment_item = ConfigTransformer._transform_config_item_to_segment(item)
@@ -322,9 +328,7 @@ class ConfigTransformer:
                     "Failed to parse host config response",
                     error=str(e),
                 )
-                raise ValueError(
-                    f"Invalid host config response format: {str(e)}"
-                ) from e
+                raise ValueError(f"Invalid host config response format: {str(e)}") from e
 
         hotel_code = host_config.hotel_info.hotel_code
 
@@ -341,12 +345,14 @@ class ConfigTransformer:
             execution_date = datetime.now(timezone.utc).date()
 
         # Handle both date objects and ISO strings
-        if hasattr(execution_date, 'isoformat'):
+        if hasattr(execution_date, "isoformat"):
             execution_date_str = execution_date.isoformat()
         else:
             execution_date_str = str(execution_date)
 
-        calendar_date_range = f"[{execution_date_str},)"  # Open-ended range from execution date onwards
+        calendar_date_range = (
+            f"[{execution_date_str},)"  # Open-ended range from execution date onwards
+        )
 
         for room_item in host_config.rooms:
             try:

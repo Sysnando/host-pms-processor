@@ -6,7 +6,7 @@ occupancy, revenue, segments, dates, pax, etc.
 """
 
 from datetime import datetime
-from typing import Any, Optional
+from typing import Any
 
 from structlog import get_logger
 
@@ -17,7 +17,11 @@ from src.models.host.stat_daily import StatDailyRecord
 logger = get_logger(__name__)
 
 # Charge code configuration
-ROOM_CHARGE_CODES = ["ALOJ", "OB", "TXCANCEL"]  # Room revenue (ALOJ=accommodation, OB=overbooking, TXCANCEL=cancellation fee)
+ROOM_CHARGE_CODES = [
+    "ALOJ",
+    "OB",
+    "TXCANCEL",
+]  # Room revenue (ALOJ=accommodation, OB=overbooking, TXCANCEL=cancellation fee)
 OTHER_CHARGE_CODES = []  # Other charges to include (currently none)
 NOSHOW_CHARGE_CODES = ["NOSHOW"]  # No-show charges
 EXCLUDED_CHARGE_CODES = ["PA", "PAEXTRA", "BARBEB13"]  # F&B - explicitly excluded
@@ -25,13 +29,13 @@ EXCLUDED_CHARGE_CODES = ["PA", "PAEXTRA", "BARBEB13"]  # F&B - explicitly exclud
 # Status mapping from Host PMS ResStatus to Climber status codes
 # Climber: 0=CANCELLED, 1=CHECKED_IN, 2=CHECKED_OUT, 3=CONFIRMED, 4=NO_SHOW, 5=TENTATIVE
 STATUS_MAP = {
-    0: 3,   # STANDARD → CONFIRMED
-    2: 5,   # OPTION → TENTATIVE
-    3: 5,   # WAITLIST → TENTATIVE
-    5: 0,   # OOO → CANCELLED
-    6: 0,   # CXL → CANCELLED
-    7: 4,   # NOSHOW → NO_SHOW
-    8: 0,   # OOI → CANCELLED
+    0: 3,  # STANDARD → CONFIRMED
+    2: 5,  # OPTION → TENTATIVE
+    3: 5,  # WAITLIST → TENTATIVE
+    5: 0,  # OOO → CANCELLED
+    6: 0,  # CXL → CANCELLED
+    7: 4,  # NOSHOW → NO_SHOW
+    8: 0,  # OOI → CANCELLED
     10: 1,  # CI → CHECKED_IN
     20: 2,  # CO → CHECKED_OUT
 }
@@ -179,7 +183,7 @@ class StatDailyToReservationTransformer:
         return dt.date().isoformat()
 
     @staticmethod
-    def _get_segment_code(value: Optional[str], default: str = "UNASSIGNED") -> str:
+    def _get_segment_code(value: str | None, default: str = "UNASSIGNED") -> str:
         """Get segment code with default fallback.
 
         Args:
@@ -197,10 +201,10 @@ class StatDailyToReservationTransformer:
     def _transform_group_to_reservation(
         records: list[StatDailyRecord],
         hotel_code: str,
-        hotel_local_time: Optional[datetime] = None,
-        room_charge_codes: Optional[set[str]] = None,
+        hotel_local_time: datetime | None = None,
+        room_charge_codes: set[str] | None = None,
         is_first_import: bool = False,
-    ) -> Optional[ClimberReservation]:
+    ) -> ClimberReservation | None:
         """Transform a group of StatDaily records into a single ClimberReservation.
 
         Args:
@@ -231,24 +235,23 @@ class StatDailyToReservationTransformer:
             elif record.record_type in ("HISTORY-REVENUE", "FORECAST-REVENUE"):
                 # Only include room-related charge codes (dynamically extracted from config)
                 # NOSHOW charges are handled separately but still included
-                if record.charge_code in room_charge_codes or record.charge_code in NOSHOW_CHARGE_CODES:
+                if (
+                    record.charge_code in room_charge_codes
+                    or record.charge_code in NOSHOW_CHARGE_CODES
+                ):
                     revenue_records.append(record)
 
         # Use first occupancy record as base, or first revenue record if no occupancy
-        base_record = occupancy_records[0] if occupancy_records else (
-            revenue_records[0] if revenue_records else records[0]
+        base_record = (
+            occupancy_records[0]
+            if occupancy_records
+            else (revenue_records[0] if revenue_records else records[0])
         )
 
         # Extract dates
-        hotel_date = StatDailyToReservationTransformer._extract_date_string(
-            base_record.hotel_date
-        )
-        check_in = StatDailyToReservationTransformer._extract_date_string(
-            base_record.check_in
-        )
-        check_out = StatDailyToReservationTransformer._extract_date_string(
-            base_record.check_out
-        )
+        hotel_date = StatDailyToReservationTransformer._extract_date_string(base_record.hotel_date)
+        check_in = StatDailyToReservationTransformer._extract_date_string(base_record.check_in)
+        check_out = StatDailyToReservationTransformer._extract_date_string(base_record.check_out)
         created_date = StatDailyToReservationTransformer._extract_date_string(
             base_record.created_on
         )
@@ -276,13 +279,8 @@ class StatDailyToReservationTransformer:
                 f"{base_record.res_no}{base_record.global_res_guest_id}{base_record.master_detail}"
             )
         else:
-            reservation_id = (
-                f"{base_record.res_id}{base_record.global_res_guest_id}"
-            )
-            reservation_id_external = (
-                f"{base_record.res_no}{base_record.global_res_guest_id}"
-            )
-
+            reservation_id = f"{base_record.res_id}{base_record.global_res_guest_id}"
+            reservation_id_external = f"{base_record.res_no}{base_record.global_res_guest_id}"
 
         # Get occupancy data from occupancy records (HISTORY-OCCUPANCY or FORECAST-OCCUPANCY)
         # IMPORTANT: Sum room_nights and pax from ALL occupancy records
@@ -331,27 +329,15 @@ class StatDailyToReservationTransformer:
             rooms = 0
 
         # Extract segments
-        agency_code = StatDailyToReservationTransformer._get_segment_code(
-            base_record.agency
-        )
+        agency_code = StatDailyToReservationTransformer._get_segment_code(base_record.agency)
         channel_code = StatDailyToReservationTransformer._get_segment_code(
             base_record.channel_description
         )
-        company_code = StatDailyToReservationTransformer._get_segment_code(
-            base_record.company
-        )
-        cro_code = StatDailyToReservationTransformer._get_segment_code(
-            base_record.cro
-        )
-        group_code = StatDailyToReservationTransformer._get_segment_code(
-            base_record.groupname
-        )
-        package_code = StatDailyToReservationTransformer._get_segment_code(
-            base_record.pack
-        )
-        rate_code = StatDailyToReservationTransformer._get_segment_code(
-            base_record.price_list
-        )
+        company_code = StatDailyToReservationTransformer._get_segment_code(base_record.company)
+        cro_code = StatDailyToReservationTransformer._get_segment_code(base_record.cro)
+        group_code = StatDailyToReservationTransformer._get_segment_code(base_record.groupname)
+        package_code = StatDailyToReservationTransformer._get_segment_code(base_record.pack)
+        rate_code = StatDailyToReservationTransformer._get_segment_code(base_record.price_list)
         segment_code = StatDailyToReservationTransformer._get_segment_code(
             base_record.segment_description
         )
@@ -406,7 +392,7 @@ class StatDailyToReservationTransformer:
     def transform_batch(
         stat_daily_records: list[StatDailyRecord] | list[dict[str, Any]],
         hotel_code: str,
-        hotel_local_time: Optional[datetime] = None,
+        hotel_local_time: datetime | None = None,
         config_response: HotelConfigResponse | dict[str, Any] | None = None,
         is_first_import: bool = False,
     ) -> ReservationCollection:
@@ -481,11 +467,6 @@ class StatDailyToReservationTransformer:
                     and reservation.revenue_room == 0
                     and reservation.revenue_room_invoice == 0
                 ):
-                    # logger.debug(
-                    #     "Skipping reservation with all-zero values",
-                    #     res_id=reservation.reservation_id,
-                    #     hotel_date=reservation.calendar_date,
-                    # )
                     continue
                 reservations.append(reservation)
             else:

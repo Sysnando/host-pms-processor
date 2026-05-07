@@ -152,9 +152,7 @@ class S3Manager:
                 data_type=data_type,
                 error=str(e),
             )
-            raise S3UploadError(
-                f"Unexpected error uploading raw data: {str(e)}"
-            ) from e
+            raise S3UploadError(f"Unexpected error uploading raw data: {str(e)}") from e
 
     def upload_processed(
         self,
@@ -235,9 +233,7 @@ class S3Manager:
                 data_type=data_type,
                 error=str(e),
             )
-            raise S3UploadError(
-                f"Unexpected error uploading processed data: {str(e)}"
-            ) from e
+            raise S3UploadError(f"Unexpected error uploading processed data: {str(e)}") from e
 
     def get_object(self, bucket_name: str, key: str) -> str:
         """Retrieve object from S3.
@@ -277,9 +273,7 @@ class S3Manager:
                 key=key,
                 error=str(e),
             )
-            raise S3UploadError(
-                f"Failed to retrieve object from S3: {str(e)}"
-            ) from e
+            raise S3UploadError(f"Failed to retrieve object from S3: {str(e)}") from e
 
     def list_objects(
         self,
@@ -336,9 +330,7 @@ class S3Manager:
                 prefix=prefix,
                 error=str(e),
             )
-            raise S3UploadError(
-                f"Failed to list objects in S3: {str(e)}"
-            ) from e
+            raise S3UploadError(f"Failed to list objects in S3: {str(e)}") from e
 
     def delete_object(self, bucket_name: str, key: str) -> None:
         """Delete object from S3.
@@ -372,7 +364,4 @@ class S3Manager:
                 key=key,
                 error=str(e),
             )
-            raise S3UploadError(
-                f"Failed to delete object from S3: {str(e)}"
-            ) from e
-
+            raise S3UploadError(f"Failed to delete object from S3: {str(e)}") from e

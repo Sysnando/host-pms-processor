@@ -73,9 +73,7 @@ def check_esb_config():
 
     # Determine which auth method will be used
     print("\n5. Authentication Method:")
-    basic_auth_value = (
-        settings.esb_basic_auth or settings.esb.basic_auth or ""
-    ).strip()
+    basic_auth_value = (settings.esb_basic_auth or settings.esb.basic_auth or "").strip()
 
     if basic_auth_value:
         print("   ✅ Will use ESB_BASIC_AUTH (pre-encoded)")
@@ -112,9 +110,8 @@ def check_esb_config():
     print("SUMMARY")
     print("=" * 80)
 
-    ready_for_testing = (
-        use_real_esb
-        and (basic_auth_value or (oauth_client_id.strip() and oauth_client_secret.strip()))
+    ready_for_testing = use_real_esb and (
+        basic_auth_value or (oauth_client_id.strip() and oauth_client_secret.strip())
     )
 
     if ready_for_testing:

@@ -3,14 +3,15 @@ Complete end-to-end ETL flow testing with fixtures and mocked services.
 
 This shows how to test your entire orchestration without hitting real APIs.
 """
+
+import asyncio
 import json
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
-import asyncio
 
 import pytest
 
-from src.config.logging import get_logger, configure_logging
+from src.config.logging import configure_logging, get_logger
 
 # Configure logging at module level
 configure_logging()
@@ -50,12 +51,8 @@ class TestETLFlowWithFixtures:
 
         # Mock the Host API client
         orchestrator.host_api_client = AsyncMock()
-        orchestrator.host_api_client.get_hotel_config = AsyncMock(
-            return_value=config_data
-        )
-        orchestrator.host_api_client.get_reservations = AsyncMock(
-            return_value=reservation_data
-        )
+        orchestrator.host_api_client.get_hotel_config = AsyncMock(return_value=config_data)
+        orchestrator.host_api_client.get_reservations = AsyncMock(return_value=reservation_data)
 
         # Mock ESB client
         orchestrator.esb_client = AsyncMock()
@@ -70,21 +67,19 @@ class TestETLFlowWithFixtures:
         orchestrator.s3_manager.upload_raw = MagicMock(
             return_value={
                 "key": "raw/HOTEL001/config/2024-10-26.json",
-                "url": "s3://bucket/raw/HOTEL001/config/2024-10-26.json"
+                "url": "s3://bucket/raw/HOTEL001/config/2024-10-26.json",
             }
         )
         orchestrator.s3_manager.upload_processed = MagicMock(
             return_value={
                 "key": "processed/HOTEL001/config/2024-10-26.json",
-                "url": "s3://bucket/processed/HOTEL001/config/2024-10-26.json"
+                "url": "s3://bucket/processed/HOTEL001/config/2024-10-26.json",
             }
         )
 
         # Mock SQS manager
         orchestrator.sqs_manager = MagicMock()
-        orchestrator.sqs_manager.send_message = MagicMock(
-            return_value={"message_id": "msg-123"}
-        )
+        orchestrator.sqs_manager.send_message = MagicMock(return_value={"message_id": "msg-123"})
 
         # Run orchestration
         result = await orchestrator.process_hotel("HOTEL001")
@@ -107,10 +102,12 @@ class TestETLFlowWithFixtures:
         # Verify ESB registration was called
         assert orchestrator.esb_client.register_file.called
 
-        logger.info("Happy path test passed!",
-                    config_rooms=result['config']['room_count'],
-                    reservations=result['reservations']['record_count'],
-                    sqs_messages=len(result['sqs_messages']))
+        logger.info(
+            "Happy path test passed!",
+            config_rooms=result["config"]["room_count"],
+            reservations=result["reservations"]["record_count"],
+            sqs_messages=len(result["sqs_messages"]),
+        )
 
     @pytest.mark.asyncio
     async def test_etl_with_cancelled_reservation(self):
@@ -124,12 +121,8 @@ class TestETLFlowWithFixtures:
 
         # Mock clients
         orchestrator.host_api_client = AsyncMock()
-        orchestrator.host_api_client.get_hotel_config = AsyncMock(
-            return_value=config_data
-        )
-        orchestrator.host_api_client.get_reservations = AsyncMock(
-            return_value=cancelled_data
-        )
+        orchestrator.host_api_client.get_hotel_config = AsyncMock(return_value=config_data)
+        orchestrator.host_api_client.get_reservations = AsyncMock(return_value=cancelled_data)
 
         orchestrator.esb_client = AsyncMock()
         orchestrator.esb_client.get_hotel_parameters = AsyncMock(
@@ -147,9 +140,7 @@ class TestETLFlowWithFixtures:
         )
 
         orchestrator.sqs_manager = MagicMock()
-        orchestrator.sqs_manager.send_message = MagicMock(
-            return_value={"message_id": "msg-123"}
-        )
+        orchestrator.sqs_manager.send_message = MagicMock(return_value={"message_id": "msg-123"})
 
         # Run orchestration
         result = await orchestrator.process_hotel("HOTEL001")
@@ -158,8 +149,10 @@ class TestETLFlowWithFixtures:
         assert result["success"] is True
         assert result["reservations"]["record_count"] == 1
 
-        logger.info("Cancelled reservation test passed!",
-                    processed_reservations=result['reservations']['record_count'])
+        logger.info(
+            "Cancelled reservation test passed!",
+            processed_reservations=result["reservations"]["record_count"],
+        )
 
     def test_fixture_data_structure(self):
         """Verify fixture data has correct structure."""
@@ -217,43 +210,77 @@ class TestETLFlowWithFixtures:
             assert isinstance(room_inv["roomCode"], str), "roomCode must be string"
 
             # Validate dailyInventories array
-            assert "dailyInventories" in room_inv, f"Missing dailyInventories in room {room_inv['roomCode']}"
-            assert len(room_inv["dailyInventories"]) > 0, f"No daily inventories for room {room_inv['roomCode']}"
+            assert (
+                "dailyInventories" in room_inv
+            ), f"Missing dailyInventories in room {room_inv['roomCode']}"
+            assert (
+                len(room_inv["dailyInventories"]) > 0
+            ), f"No daily inventories for room {room_inv['roomCode']}"
 
             # Validate each daily inventory entry
             for daily_inv in room_inv["dailyInventories"]:
                 # Validate required fields
-                assert "date" in daily_inv, f"Missing date in daily inventory for {room_inv['roomCode']}"
-                assert "inventory" in daily_inv, f"Missing inventory in daily inventory for {room_inv['roomCode']}"
-                assert "inventoryOOI" in daily_inv, f"Missing inventoryOOI in daily inventory for {room_inv['roomCode']}"
-                assert "inventoryOOO" in daily_inv, f"Missing inventoryOOO in daily inventory for {room_inv['roomCode']}"
+                assert (
+                    "date" in daily_inv
+                ), f"Missing date in daily inventory for {room_inv['roomCode']}"
+                assert (
+                    "inventory" in daily_inv
+                ), f"Missing inventory in daily inventory for {room_inv['roomCode']}"
+                assert (
+                    "inventoryOOI" in daily_inv
+                ), f"Missing inventoryOOI in daily inventory for {room_inv['roomCode']}"
+                assert (
+                    "inventoryOOO" in daily_inv
+                ), f"Missing inventoryOOO in daily inventory for {room_inv['roomCode']}"
 
                 # Validate field types
-                assert isinstance(daily_inv["date"], str), f"date must be string for {room_inv['roomCode']}"
-                assert isinstance(daily_inv["inventory"], (int, float)), f"inventory must be numeric for {room_inv['roomCode']}"
-                assert isinstance(daily_inv["inventoryOOI"], int), f"inventoryOOI must be integer for {room_inv['roomCode']}"
-                assert isinstance(daily_inv["inventoryOOO"], int), f"inventoryOOO must be integer for {room_inv['roomCode']}"
+                assert isinstance(
+                    daily_inv["date"], str
+                ), f"date must be string for {room_inv['roomCode']}"
+                assert isinstance(
+                    daily_inv["inventory"], (int, float)
+                ), f"inventory must be numeric for {room_inv['roomCode']}"
+                assert isinstance(
+                    daily_inv["inventoryOOI"], int
+                ), f"inventoryOOI must be integer for {room_inv['roomCode']}"
+                assert isinstance(
+                    daily_inv["inventoryOOO"], int
+                ), f"inventoryOOO must be integer for {room_inv['roomCode']}"
 
                 # Validate date format (should be ISO format YYYY-MM-DD)
-                assert len(daily_inv["date"]) >= 10, f"date should be in ISO format (YYYY-MM-DD) for {room_inv['roomCode']}"
-                assert "-" in daily_inv["date"], f"date should contain hyphens (YYYY-MM-DD) for {room_inv['roomCode']}"
+                assert (
+                    len(daily_inv["date"]) >= 10
+                ), f"date should be in ISO format (YYYY-MM-DD) for {room_inv['roomCode']}"
+                assert (
+                    "-" in daily_inv["date"]
+                ), f"date should contain hyphens (YYYY-MM-DD) for {room_inv['roomCode']}"
 
                 # Validate OOI and OOO are boolean-like (0 or 1)
-                assert daily_inv["inventoryOOI"] in (0, 1), f"inventoryOOI must be 0 or 1 for {room_inv['roomCode']}"
-                assert daily_inv["inventoryOOO"] in (0, 1), f"inventoryOOO must be 0 or 1 for {room_inv['roomCode']}"
+                assert daily_inv["inventoryOOI"] in (
+                    0,
+                    1,
+                ), f"inventoryOOI must be 0 or 1 for {room_inv['roomCode']}"
+                assert daily_inv["inventoryOOO"] in (
+                    0,
+                    1,
+                ), f"inventoryOOO must be 0 or 1 for {room_inv['roomCode']}"
 
                 # Validate inventory is non-negative
-                assert daily_inv["inventory"] >= 0, f"inventory must be non-negative for {room_inv['roomCode']}"
+                assert (
+                    daily_inv["inventory"] >= 0
+                ), f"inventory must be non-negative for {room_inv['roomCode']}"
 
         logger.info("Room inventory structure validation passed!")
         for room_inv in inventory["roomInventories"]:
             first_inv = room_inv["dailyInventories"][0]
-            logger.info(f"Room {room_inv['roomCode']} inventory",
-                        daily_inventories_count=len(room_inv['dailyInventories']),
-                        date=first_inv['date'],
-                        inventory=first_inv['inventory'],
-                        ooi=first_inv['inventoryOOI'],
-                        ooo=first_inv['inventoryOOO'])
+            logger.info(
+                f"Room {room_inv['roomCode']} inventory",
+                daily_inventories_count=len(room_inv["dailyInventories"]),
+                date=first_inv["date"],
+                inventory=first_inv["inventory"],
+                ooi=first_inv["inventoryOOI"],
+                ooo=first_inv["inventoryOOO"],
+            )
 
     def test_transformation_logic_with_fixtures(self):
         """Test transformation logic independently using fixtures."""
@@ -275,10 +302,12 @@ class TestETLFlowWithFixtures:
         assert result.revenue_room == expected_output["revenueRoom"]
         assert result.revenue_fb == expected_output["revenueFb"]
 
-        logger.info("Transformation logic test passed!",
-                    reservation_id=result.reservation_id,
-                    revenue_room=result.revenue_room,
-                    revenue_fb=result.revenue_fb)
+        logger.info(
+            "Transformation logic test passed!",
+            reservation_id=result.reservation_id,
+            revenue_room=result.revenue_room,
+            revenue_fb=result.revenue_fb,
+        )
 
     def test_all_fixtures_are_valid_json(self):
         """Verify all fixture files are valid JSON."""
@@ -313,20 +342,26 @@ class TestLocalDevelopmentFlow:
 
         # Step 1: Load fixture
         config_data = load_fixture("host_pms_api/config_response.json")
-        logger.info("Loaded config fixture from tests/fixtures/",
-                    hotel_name=config_data['HotelInfo']['HotelName'])
+        logger.info(
+            "Loaded config fixture from tests/fixtures/",
+            hotel_name=config_data["HotelInfo"]["HotelName"],
+        )
 
         # Step 2: Transform it
         config_output, segments = ConfigTransformer.transform(config_data)
-        logger.info("Transformed config",
-                    room_count=config_output.room_count,
-                    room_codes=[r.code for r in config_output.rooms])
+        logger.info(
+            "Transformed config",
+            room_count=config_output.room_count,
+            room_codes=[r.code for r in config_output.rooms],
+        )
 
         # Step 3: Transform segments
-        logger.info("Extracted segments",
-                    agencies=len(segments.agencies),
-                    channels=len(segments.channels),
-                    rates=len(segments.rates))
+        logger.info(
+            "Extracted segments",
+            agencies=len(segments.agencies),
+            channels=len(segments.channels),
+            rates=len(segments.rates),
+        )
 
         # Step 4: Save outputs locally for inspection
         output_dir = Path(__file__).parent / "test_outputs"
@@ -350,15 +385,14 @@ class TestLocalDevelopmentFlow:
         inventory = load_fixture("host_pms_api/inventory_response.json")
 
         # Process each step
-        logger.info("Processing hotel configuration",
-                    hotel_code=config['HotelInfo']['HotelCode'],
-                    hotel_name=config['HotelInfo']['HotelName'])
+        logger.info(
+            "Processing hotel configuration",
+            hotel_code=config["HotelInfo"]["HotelCode"],
+            hotel_name=config["HotelInfo"]["HotelName"],
+        )
 
         # Count items
-        room_types = len([
-            i for i in config["ConfigInfo"]
-            if i["ConfigType"] == "CATEGORY"
-        ])
+        room_types = len([i for i in config["ConfigInfo"] if i["ConfigType"] == "CATEGORY"])
         logger.info("Hotel configuration summary", room_types=room_types)
 
         # Process reservations
@@ -366,9 +400,7 @@ class TestLocalDevelopmentFlow:
         logger.info(f"Processing {res_count} reservation(s)")
 
         for res in reservations["Reservations"]:
-            logger.debug(f"Reservation processing",
-                        reservation_id=res['ResId'],
-                        guests=res['Pax'])
+            logger.debug(f"Reservation processing", reservation_id=res["ResId"], guests=res["Pax"])
 
         # Process inventory
         room_inv_count = len(inventory["roomInventories"])

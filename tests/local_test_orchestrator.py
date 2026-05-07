@@ -8,7 +8,7 @@ The real HostPMSAPIClient is still used to fetch actual data from Host PMS API.
 Optionally supports real ESB authentication (Redis + OAuth) for testing ESB integration.
 """
 
-from typing import Any, Optional
+from typing import Any
 
 from structlog import get_logger
 
@@ -24,7 +24,7 @@ from src.services.pipeline.steps import (
     ProcessConfigStep,
     ProcessSegmentsStep,
     ProcessStatDailyStep,
-    SendNotificationsStep
+    SendNotificationsStep,
 )
 
 logger = get_logger(__name__)
@@ -56,6 +56,7 @@ class LocalTestOrchestrator(HostPMSConnectorOrchestrator):
         # Conditionally use real or mock ESB client
         if use_real_esb or settings.use_real_esb:
             from src.clients.esb_client import ClimberESBClient
+
             self.esb_client = ClimberESBClient()
             logger.info(
                 "Using REAL ClimberESBClient",
@@ -86,15 +87,11 @@ class LocalTestOrchestrator(HostPMSConnectorOrchestrator):
             FetchParametersStep(self.esb_client),
             # Step 2: Process hotel config (real API, mock S3)
             ProcessConfigStep(host_api_client, self.esb_client, self.s3_manager),
-            # Step 3: Process inventory grid (DEPRECATED)
-            # ProcessInventoryGridStep(host_api_client, self.esb_client, self.s3_manager),
-            # Step 4: Process segments (mock S3/ESB)
+            # Step 3: Process segments (mock S3/ESB)
             ProcessSegmentsStep(self.esb_client, self.s3_manager),
-            # Step 5: Process StatDaily (real API, mock S3/ESB)
+            # Step 4: Process StatDaily (real API, mock S3/ESB)
             ProcessStatDailyStep(host_api_client, self.esb_client, self.s3_manager),
-            # Step 6: Update last import date (mocked)
-            # UpdateImportDateStep(self.esb_client),
-            # Step 7: Send SQS notifications (mocked)
+            # Step 5: Send SQS notifications (mocked)
             SendNotificationsStep(self.sqs_manager),
         ]
 
