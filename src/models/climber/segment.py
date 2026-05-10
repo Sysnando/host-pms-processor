@@ -1,6 +1,18 @@
 """Pydantic models for Climber standardized segment format."""
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
+
+
+def _extract_code_str(value):
+    """Normalize a code/name field that may arrive as a dict like
+    ``{"id": "X", "code": "X", "name": "..."}`` into a flat string.
+
+    Falls back to ``"id"``, then ``str(value)``, to stay forgiving on
+    unexpected shapes.
+    """
+    if isinstance(value, dict):
+        return value.get("code") or value.get("id") or str(value)
+    return value if isinstance(value, str) else str(value)
 
 
 class SegmentItem(BaseModel):
@@ -22,6 +34,12 @@ class SegmentItem(BaseModel):
         default=9999,
         description="Sorting order position, 9999 is default",
     )
+
+    @field_validator("code", "name", mode="before")
+    @classmethod
+    def _normalize_code(cls, value):
+        return _extract_code_str(value)
+
     class Config:
         extra = "allow"
         populate_by_name = True
