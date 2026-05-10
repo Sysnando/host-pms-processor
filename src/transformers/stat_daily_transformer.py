@@ -155,10 +155,10 @@ class StatDailyTransformer:
                 hotel_date_str = hotel_date.date().isoformat()
 
             charge_code = record["charge_code"]
-            res_no = record["res_no"]
             res_id = record["res_id"]
-            global_res_guest_id = record["global_res_guest_id"]
             revenue_net = record["revenue_net"]
+
+            key = (hotel_date_str, res_id)
 
             if charge_code == "NOSHOW":
                 # NOSHOW: guest record is removed, match only by ResId
