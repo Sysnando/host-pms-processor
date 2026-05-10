@@ -160,7 +160,7 @@ def example_3_save_transformed_output():
         # Save segments
         segments_file = output_dir / "example_segments_output.json"
         with open(segments_file, "w") as f:
-            json.dump(segments.model_dump(), f, indent=2, default=str)
+            json.dump(segments.model_dump(by_alias=True), f, indent=2, default=str)
         print(f"  ✓ Saved: {segments_file}")
 
         print(f"\nYou can now inspect these files:")

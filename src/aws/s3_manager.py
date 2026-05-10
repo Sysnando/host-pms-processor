@@ -1,7 +1,7 @@
 """AWS S3 Manager for uploading raw and processed data."""
 
 import json
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any
 
 import boto3
@@ -9,6 +9,7 @@ from botocore.exceptions import ClientError
 from pydantic import BaseModel
 from structlog import get_logger
 
+from src.aws.client_factory import get_boto3_client_kwargs
 from src.config import settings
 
 logger = get_logger(__name__)
@@ -24,12 +25,16 @@ class S3Manager:
     """Manages uploads to raw and processed S3 buckets."""
 
     def __init__(self):
-        """Initialize S3 Manager with AWS settings."""
+        """Initialize S3 Manager with AWS settings.
+
+        Uses AWS_ACCESS_KEY_ID/AWS_SECRET_ACCESS_KEY if set; otherwise
+        boto3 default credential provider (SSO, role, etc.).
+        """
         self.region = settings.aws.region
-        self.s3_client = boto3.client("s3", region_name=self.region)
+        self.s3_client = boto3.client("s3", **get_boto3_client_kwargs("s3"))
         self.raw_prefix = settings.aws_s3_raw_prefix
         self.processed_prefix = settings.aws_s3_processed_prefix
-        self.timestamp = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
+        self.timestamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
 
     def _get_bucket_name(self, prefix: str, data_type: str) -> str:
         """Construct S3 bucket name from prefix and data type.
@@ -46,22 +51,28 @@ class S3Manager:
     def _serialize_data(self, data: Any) -> str:
         """Serialize data to JSON string.
 
-        Handles both Pydantic models and dicts.
+        Handles both Pydantic models, dicts, and lists of Pydantic models.
 
         Args:
-            data: Data to serialize (dict or Pydantic model)
+            data: Data to serialize (dict, Pydantic model, or list)
 
         Returns:
             JSON string
         """
         if isinstance(data, BaseModel):
-            return data.model_dump_json(by_alias=True, indent=2)
-        elif isinstance(data, dict):
-            return json.dumps(data, indent=2, default=str)
+            return data.model_dump_json(by_alias=True)
         elif isinstance(data, list):
-            return json.dumps(data, indent=2, default=str)
+            # Check if list contains Pydantic models
+            if data and isinstance(data[0], BaseModel):
+                # Convert list of Pydantic models to list of dicts
+                serialized_list = [item.model_dump(by_alias=True) for item in data]
+                return json.dumps(serialized_list, default=str)
+            else:
+                return json.dumps(data, default=str)
+        elif isinstance(data, dict):
+            return json.dumps(data, default=str)
         else:
-            return json.dumps({"data": str(data)}, indent=2)
+            return json.dumps({"data": str(data)})
 
     def upload_raw(
         self,
@@ -109,7 +120,7 @@ class S3Manager:
                 Metadata={
                     "hotel-code": hotel_code,
                     "data-type": data_type,
-                    "upload-timestamp": datetime.utcnow().isoformat(),
+                    "upload-timestamp": datetime.now(timezone.utc).isoformat(),
                 },
             )
 
@@ -192,7 +203,7 @@ class S3Manager:
                     "hotel-code": hotel_code,
                     "data-type": data_type,
                     "format": "climber-standardized",
-                    "upload-timestamp": datetime.utcnow().isoformat(),
+                    "upload-timestamp": datetime.now(timezone.utc).isoformat(),
                 },
             )
 
@@ -364,3 +375,4 @@ class S3Manager:
             raise S3UploadError(
                 f"Failed to delete object from S3: {str(e)}"
             ) from e
+

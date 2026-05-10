@@ -1,6 +1,6 @@
 """Step to update last import date in ESB."""
 
-from datetime import datetime
+from datetime import datetime, timezone
 
 from src.clients import ClimberESBClient
 from src.services.pipeline import PipelineContext, PipelineStep
@@ -30,7 +30,7 @@ class UpdateImportDateStep(PipelineStep):
         try:
             await self.esb_client.update_import_date(
                 hotel_code=context.hotel_code,
-                last_import_date=datetime.utcnow().isoformat(),
+                last_import_date=datetime.now(timezone.utc).isoformat(),
             )
 
             self.logger.info(

@@ -5,7 +5,8 @@ from the Host PMS API and transforms them into Climber reservations using the
 StatDailyToReservationTransformer.
 """
 
-from datetime import datetime, timedelta
+import asyncio
+from datetime import datetime, timedelta, timezone
 
 from src.aws import S3Manager
 from src.clients import ClimberESBClient, HostPMSAPIClient
@@ -42,6 +43,332 @@ class ProcessStatDailyStep(PipelineStep):
         self.esb_client = esb_client
         self.s3_manager = s3_manager
 
+    def _create_date_chunks(self, start_date, end_date, months=4):
+        """Split date range into chunks of specified months for memory-efficient processing.
+
+        Args:
+            start_date: Start date of the range
+            end_date: End date of the range
+            months: Number of months per chunk (default: 4)
+
+        Returns:
+            List of tuples (chunk_start_date, chunk_end_date)
+        """
+        chunks = []
+        current_start = start_date
+
+        while current_start <= end_date:
+            # Calculate chunk end (~4 months or 120 days)
+            current_end = min(
+                current_start + timedelta(days=120),
+                end_date
+            )
+            chunks.append((current_start, current_end))
+            current_start = current_end + timedelta(days=1)
+
+        return chunks
+
+    async def _fetch_date_async(
+        self,
+        date: any,
+        hotel_code: str,
+    ) -> list:
+        """Fetch StatDaily for a single date asynchronously.
+
+        Args:
+            date: Date to fetch
+            hotel_code: Hotel code for logging
+
+        Returns:
+            List of StatDaily records for the date, or empty list if fetch fails
+
+        Raises:
+            HostAPIRateLimitError: Re-raised so callers can switch to sequential mode
+        """
+        from src.clients.host_api_client import HostAPIRateLimitError
+
+        try:
+            date_str = date.isoformat()
+            stat_daily_response = await self.host_api_client.get_stat_daily_async(
+                hotel_date_filter=date_str,
+                hotel_code=hotel_code
+            )
+
+            if isinstance(stat_daily_response, list):
+                return stat_daily_response
+            return []
+
+        except HostAPIRateLimitError:
+            raise  # Let caller handle rate limit fallback
+
+        except Exception as e:
+            self.logger.warning(
+                "Failed to fetch StatDaily for date",
+                hotel_code=hotel_code,
+                date=date.isoformat(),
+                error=str(e),
+            )
+            return []
+
+    @staticmethod
+    def _concurrency_for_rows(max_rows: int) -> int:
+        """Determine concurrency level based on max rows returned by a single date.
+
+        Args:
+            max_rows: Maximum row count seen from any single date fetch
+
+        Returns:
+            Concurrency level (1, 2, 3, or 5)
+        """
+        if max_rows > 1000:
+            return 5
+        if max_rows > 500:
+            return 3
+        if max_rows > 50:
+            return 2
+        return 1
+
+    async def _fetch_dates_adaptive(self, dates: list, hotel_code: str) -> list:
+        """Fetch dates with adaptive concurrency that scales based on row counts.
+
+        Starts at concurrency=1 (sequential). After each date completes, checks
+        if the max rows seen so far warrants more concurrency. On rate limit,
+        falls back to sequential for the remaining dates.
+
+        Args:
+            dates: List of dates to fetch
+            hotel_code: Hotel code for logging
+
+        Returns:
+            List of results (one per date)
+        """
+        from src.clients.host_api_client import HostAPIRateLimitError
+
+        results = []
+        max_rows_seen = 0
+        current_concurrency = 1
+        rate_limited = False
+        MIN_DELAY = 0.35
+        i = 0
+
+        while i < len(dates):
+            if rate_limited or current_concurrency == 1:
+                # Sequential with throttling
+                start_time = asyncio.get_event_loop().time()
+                result = await self._fetch_date_async(dates[i], hotel_code)
+                results.append(result)
+                row_count = len(result) if result else 0
+                if row_count > max_rows_seen:
+                    max_rows_seen = row_count
+                i += 1
+
+                # Check if we should scale up (only if not rate limited)
+                if not rate_limited:
+                    new_concurrency = self._concurrency_for_rows(max_rows_seen)
+                    if new_concurrency > current_concurrency:
+                        current_concurrency = new_concurrency
+                        self.logger.info(
+                            f"Scaling concurrency to {current_concurrency} (max_rows={max_rows_seen})",
+                            hotel_code=hotel_code,
+                        )
+                        continue  # Skip delay, switch to parallel
+
+                elapsed = asyncio.get_event_loop().time() - start_time
+                if elapsed < MIN_DELAY:
+                    await asyncio.sleep(MIN_DELAY - elapsed)
+            else:
+                # Parallel batch: take up to current_concurrency dates
+                batch = dates[i:i + current_concurrency]
+                semaphore = asyncio.Semaphore(current_concurrency)
+                batch_rate_limited = False
+                completed = {}  # index -> result
+
+                async def fetch_one(idx, date):
+                    nonlocal batch_rate_limited
+                    if batch_rate_limited:
+                        return idx, None
+                    async with semaphore:
+                        if batch_rate_limited:
+                            return idx, None
+                        try:
+                            r = await self._fetch_date_async(date, hotel_code)
+                            return idx, r
+                        except HostAPIRateLimitError:
+                            batch_rate_limited = True
+                            return idx, None
+
+                tasks = [fetch_one(j, d) for j, d in enumerate(batch)]
+                raw = await asyncio.gather(*tasks, return_exceptions=True)
+
+                for item in raw:
+                    if isinstance(item, tuple):
+                        idx, r = item
+                        if r is not None:
+                            completed[idx] = r
+                            row_count = len(r) if r else 0
+                            if row_count > max_rows_seen:
+                                max_rows_seen = row_count
+
+                # Collect completed results in order, track what's left
+                for j in range(len(batch)):
+                    if j in completed:
+                        results.append(completed[j])
+                    else:
+                        # Not completed — will be retried sequentially
+                        break
+                else:
+                    # All completed
+                    i += len(batch)
+
+                    # Re-evaluate concurrency
+                    new_concurrency = self._concurrency_for_rows(max_rows_seen)
+                    if new_concurrency > current_concurrency:
+                        current_concurrency = new_concurrency
+                        self.logger.info(
+                            f"Scaling concurrency to {current_concurrency} (max_rows={max_rows_seen})",
+                            hotel_code=hotel_code,
+                        )
+                    continue
+
+                # Some failed — advance past completed ones, fall back to sequential
+                completed_count = len(completed)
+                i += completed_count
+
+                if batch_rate_limited:
+                    rate_limited = True
+                    self.logger.warning(
+                        f"Rate limit hit, falling back to sequential for {len(dates) - i} remaining dates",
+                        hotel_code=hotel_code,
+                    )
+
+        return results
+
+    async def _process_chunk(
+        self,
+        context: PipelineContext,
+        chunk_start: any,
+        chunk_end: any,
+        hotel_local_time: any,
+        chunk_index: int = None,
+        total_chunks: int = None,
+    ) -> dict:
+        """Process a single date range chunk: fetch, transform, and upload.
+
+        Note: ESB file registration happens after ALL chunks are processed
+        to ensure only one SQS message is sent per hotel.
+
+        Args:
+            context: Pipeline context
+            chunk_start: Start date of chunk
+            chunk_end: End date of chunk
+            hotel_local_time: Hotel local time for record_date calculation
+            chunk_index: Index of current chunk (for logging)
+            total_chunks: Total number of chunks (for logging)
+
+        Returns:
+            Dictionary with stats: {raw_count, reservation_count, processed_upload}
+        """
+        chunk_label = f"chunk {chunk_index}/{total_chunks}" if chunk_index else "full range"
+
+        self.logger.info(
+            f"Processing {chunk_label}",
+            hotel_code=context.hotel_code,
+            start_date=chunk_start.isoformat(),
+            end_date=chunk_end.isoformat(),
+        )
+
+        # Fetch StatDaily for this chunk in parallel
+        # Build list of all dates in the chunk
+        dates = []
+        current_date = chunk_start
+        while current_date <= chunk_end:
+            dates.append(current_date)
+            current_date += timedelta(days=1)
+
+        self.logger.info(
+            f"Fetching StatDaily for {len(dates)} dates (adaptive concurrency) for {chunk_label}",
+            hotel_code=context.hotel_code,
+            date_count=len(dates),
+        )
+
+        results = await self._fetch_dates_adaptive(dates, context.hotel_code)
+
+        # Combine all results
+        chunk_records = []
+        for date_records in results:
+            if date_records:  # Skip empty lists from failed fetches
+                chunk_records.extend(date_records)
+
+        self.logger.info(
+            f"Fetched StatDaily data for {chunk_label}",
+            hotel_code=context.hotel_code,
+            total_records=len(chunk_records),
+        )
+
+        if not chunk_records:
+            self.logger.warning(
+                f"No records found for {chunk_label}, skipping",
+                hotel_code=context.hotel_code,
+            )
+            return {"raw_count": 0, "reservation_count": 0}
+
+        # Generate fresh timestamp for this chunk to ensure unique filenames
+        chunk_timestamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
+
+        # Upload raw StatDaily data
+        raw_upload = await asyncio.to_thread(
+            self.s3_manager.upload_raw,
+            hotel_code=context.hotel_code,
+            data_type="reservations",
+            data=chunk_records,
+            custom_suffix=chunk_timestamp,
+        )
+        upload_key = f"reservations_raw_{chunk_index}" if chunk_index else "reservations_raw"
+        context.add_s3_upload(upload_key, raw_upload)
+
+        # Transform StatDaily to Climber reservations
+        self.logger.info(
+            f"Converting StatDaily to reservations for {chunk_label}",
+            hotel_code=context.hotel_code,
+        )
+
+        reservation_collection = StatDailyToReservationTransformer.transform_batch(
+            chunk_records,
+            hotel_code=context.hotel_code,
+            hotel_local_time=hotel_local_time,
+            config_response=context.config_response,
+            is_first_import=context.is_first_import,
+        )
+
+        # Upload processed reservations
+        processed_upload = await asyncio.to_thread(
+            self.s3_manager.upload_processed,
+            hotel_code=context.hotel_code,
+            data_type="reservations",
+            data=reservation_collection.reservations,
+            custom_suffix=chunk_timestamp,
+        )
+        upload_key = f"reservations_processed_{chunk_index}" if chunk_index else "reservations_processed"
+        context.add_s3_upload(upload_key, processed_upload)
+
+        # Note: ESB registration happens after all chunks are processed (see execute method)
+
+        self.logger.info(
+            f"Successfully processed {chunk_label}",
+            hotel_code=context.hotel_code,
+            stat_daily_records=len(chunk_records),
+            reservations_created=len(reservation_collection.reservations),
+        )
+
+        # Return stats for this chunk
+        return {
+            "raw_count": len(chunk_records),
+            "reservation_count": len(reservation_collection.reservations),
+            "chunk_records": chunk_records,  # Keep for context (last chunk only)
+            "reservation_collection": reservation_collection,  # Keep for context (last chunk only)
+            "processed_upload": processed_upload,  # Keep for ESB registration (last chunk only)
+        }
+
     async def execute(self, context: PipelineContext) -> bool:
         """Process StatDaily data and convert to reservations.
 
@@ -52,139 +379,170 @@ class ProcessStatDailyStep(PipelineStep):
             True if successful, False otherwise
         """
         try:
-            # Calculate date range from configuration
-            # Uses HOST_API_STAT_DAILY_DAYS_BACK_START and HOST_API_STAT_DAILY_DAYS_BACK_END
-            # environment variables or defaults (95 days and 30 days)
-            today = datetime.utcnow().date()
-            start_date = today - timedelta(days=settings.host_pms.stat_daily_days_back_start)
-            end_date = today - timedelta(days=settings.host_pms.stat_daily_days_back_end)
+            # Use calculated date range from ESB parameters if available
+            # Otherwise fall back to configuration-based calculation
+            if context.calculated_stat_daily_start and context.calculated_stat_daily_end:
+                start_date = datetime.fromisoformat(context.calculated_stat_daily_start).date()
+                end_date = datetime.fromisoformat(context.calculated_stat_daily_end).date()
 
-            self.logger.info(
-                "Fetching StatDaily date range",
-                hotel_code=context.hotel_code,
-                start_date=start_date.isoformat(),
-                end_date=end_date.isoformat(),
-                days_back_start=settings.host_pms.stat_daily_days_back_start,
-                days_back_end=settings.host_pms.stat_daily_days_back_end,
-            )
+                self.logger.info(
+                    "Using ESB-calculated StatDaily date range",
+                    hotel_code=context.hotel_code,
+                    start_date=start_date.isoformat(),
+                    end_date=end_date.isoformat(),
+                    is_first_import=(context.last_import_date is None),
+                )
+            else:
+                # Fallback: Calculate date range from configuration
+                # Uses HOST_API_STAT_DAILY_DAYS_BACK_START and HOST_API_STAT_DAILY_DAYS_BACK_END
+                # environment variables or defaults (95 days and 30 days)
+                today = datetime.now(timezone.utc).date()
+                start_date = today - timedelta(days=settings.host_pms.stat_daily_days_back_start)
+                end_date = today - timedelta(days=settings.host_pms.stat_daily_days_back_end)
 
-            # Fetch StatDaily for each date in range
-            all_stat_daily_records = []
-            current_date = start_date
+                self.logger.info(
+                    "Using config-based StatDaily date range (fallback)",
+                    hotel_code=context.hotel_code,
+                    start_date=start_date.isoformat(),
+                    end_date=end_date.isoformat(),
+                    days_back_start=settings.host_pms.stat_daily_days_back_start,
+                    days_back_end=settings.host_pms.stat_daily_days_back_end,
+                )
 
-            while current_date <= end_date:
+            # Extract hotel_local_time from config for record_date calculation
+            hotel_local_time = None
+            if context.config_response:
                 try:
-                    date_str = current_date.isoformat()
-                    stat_daily_response = self.host_api_client.get_stat_daily(
-                        hotel_date_filter=date_str
-                    )
+                    from src.models.host.config import HotelConfigResponse
 
-                    if isinstance(stat_daily_response, list):
-                        all_stat_daily_records.extend(stat_daily_response)
+                    # Convert dict to HotelConfigResponse if needed
+                    if isinstance(context.config_response, dict):
+                        config_model = HotelConfigResponse(**context.config_response)
+                    else:
+                        config_model = context.config_response
 
+                    hotel_local_time = config_model.hotel_info.local_time
+                    if hotel_local_time:
+                        self.logger.info(
+                            "Extracted hotel local time",
+                            hotel_code=context.hotel_code,
+                            local_time=str(hotel_local_time),
+                        )
                 except Exception as e:
                     self.logger.warning(
-                        "Failed to fetch StatDaily for date",
+                        "Could not extract hotel local time",
                         hotel_code=context.hotel_code,
-                        date=current_date.isoformat(),
                         error=str(e),
                     )
-                    # Continue with other dates even if one fails
 
-                current_date += timedelta(days=1)
+            # Check if first import - use chunking to avoid memory issues
+            if context.is_first_import:
+                # Break into 4-month chunks for memory efficiency
+                date_chunks = self._create_date_chunks(start_date, end_date)
 
-            self.logger.info(
-                "Fetched StatDaily data",
-                hotel_code=context.hotel_code,
-                total_records=len(all_stat_daily_records),
-            )
-
-            # Upload raw StatDaily data
-            if all_stat_daily_records:
-                raw_upload = self.s3_manager.upload_raw(
+                self.logger.info(
+                    "First import detected - breaking into 4-month chunks",
                     hotel_code=context.hotel_code,
-                    data_type="stat-daily",
-                    data=all_stat_daily_records,
+                    total_chunks=len(date_chunks),
+                    date_range=f"{start_date.isoformat()} to {end_date.isoformat()}",
                 )
-                context.add_s3_upload("stat_daily_raw", raw_upload)
 
-                # Store raw records in context
-                context.stat_daily_records = all_stat_daily_records
+                # Process each chunk separately
+                total_raw_records = 0
+                total_reservations = 0
+                last_chunk_with_data = None
 
-                # Extract hotel_local_time from config for record_date calculation
-                hotel_local_time = None
-                if context.config_response:
-                    try:
-                        from src.models.host.config import HotelConfigResponse
+                for idx, (chunk_start, chunk_end) in enumerate(date_chunks, start=1):
+                    chunk_result = await self._process_chunk(
+                        context=context,
+                        chunk_start=chunk_start,
+                        chunk_end=chunk_end,
+                        hotel_local_time=hotel_local_time,
+                        chunk_index=idx,
+                        total_chunks=len(date_chunks),
+                    )
 
-                        # Convert dict to HotelConfigResponse if needed
-                        if isinstance(context.config_response, dict):
-                            config_model = HotelConfigResponse(**context.config_response)
-                        else:
-                            config_model = context.config_response
+                    total_raw_records += chunk_result["raw_count"]
+                    total_reservations += chunk_result["reservation_count"]
+                    if chunk_result.get("processed_upload"):
+                        last_chunk_with_data = chunk_result
 
-                        hotel_local_time = config_model.hotel_info.local_time
-                        if hotel_local_time:
-                            self.logger.info(
-                                "Extracted hotel local time",
-                                hotel_code=context.hotel_code,
-                                local_time=str(hotel_local_time),
-                            )
-                    except Exception as e:
-                        self.logger.warning(
-                            "Could not extract hotel local time",
+                    # Register each chunk with ESB immediately so every file is imported
+                    if chunk_result.get("processed_upload"):
+                        processed_upload = chunk_result["processed_upload"]
+                        await self.esb_client.register_file(
                             hotel_code=context.hotel_code,
-                            error=str(e),
+                            file_type="reservations",
+                            file_url=processed_upload["url"],
+                            file_key=processed_upload["key"],
+                            record_count=chunk_result["reservation_count"],
+                            is_first_import=context.is_first_import,
+                            hotel_local_time=context.hotel_local_time,
+                        )
+                        self.logger.info(
+                            f"Registered chunk {idx}/{len(date_chunks)} with ESB",
+                            hotel_code=context.hotel_code,
+                            reservations=chunk_result["reservation_count"],
+                            file_key=processed_upload["key"],
                         )
 
-                # Convert StatDaily to Climber reservations
-                self.logger.info(
-                    "Converting StatDaily to reservations",
-                    hotel_code=context.hotel_code,
-                )
+                # Store last chunk data in context (memory-conscious)
+                if last_chunk_with_data:
+                    context.stat_daily_records = last_chunk_with_data.get("chunk_records", [])
+                    context.reservations_collection = last_chunk_with_data.get("reservation_collection")
 
-                reservation_collection = StatDailyToReservationTransformer.transform_batch(
-                    all_stat_daily_records,
-                    hotel_code=context.hotel_code,
-                    hotel_local_time=hotel_local_time,
-                    config_response=context.config_response,
-                )
-
-                # Upload processed reservations
-                processed_upload = self.s3_manager.upload_processed(
-                    hotel_code=context.hotel_code,
-                    data_type="reservations",
-                    data=reservation_collection,
-                )
-                context.add_s3_upload("reservations_processed", processed_upload)
-
-                # Register with ESB
-                await self.esb_client.register_file(
-                    hotel_code=context.hotel_code,
-                    file_type="reservation",
-                    file_url=processed_upload["url"],
-                    file_key=processed_upload["key"],
-                    record_count=reservation_collection.total_count,
-                )
-
-                # Add SQS message
-                context.add_sqs_message("reservations", processed_upload["key"])
-
-                # Update context
-                context.reservations_collection = reservation_collection
-
-                # Store statistics
+                # Store aggregated statistics
                 context.stats["stat_daily"] = {
-                    "raw_record_count": len(all_stat_daily_records),
-                    "reservations_created": len(reservation_collection.reservations),
+                    "raw_record_count": total_raw_records,
+                    "reservations_created": total_reservations,
+                    "chunks_processed": len(date_chunks),
                 }
 
                 self.logger.info(
-                    "Successfully converted StatDaily to reservations",
+                    "Successfully processed all chunks",
                     hotel_code=context.hotel_code,
-                    stat_daily_records=len(all_stat_daily_records),
-                    reservations_created=len(reservation_collection.reservations),
+                    total_chunks=len(date_chunks),
+                    total_stat_daily_records=total_raw_records,
+                    total_reservations=total_reservations,
                 )
+
+            else:
+                # Regular import - process entire range at once
+                chunk_result = await self._process_chunk(
+                    context=context,
+                    chunk_start=start_date,
+                    chunk_end=end_date,
+                    hotel_local_time=hotel_local_time,
+                )
+
+                # Store in context
+                context.stat_daily_records = chunk_result.get("chunk_records", [])
+                context.reservations_collection = chunk_result.get("reservation_collection")
+
+                # Store statistics
+                context.stats["stat_daily"] = {
+                    "raw_record_count": chunk_result["raw_count"],
+                    "reservations_created": chunk_result["reservation_count"],
+                }
+
+                # Register with ESB after processing
+                if chunk_result.get("processed_upload"):
+                    processed_upload = chunk_result["processed_upload"]
+                    await self.esb_client.register_file(
+                        hotel_code=context.hotel_code,
+                        file_type="reservations",
+                        file_url=processed_upload["url"],
+                        file_key=processed_upload["key"],
+                        record_count=chunk_result["reservation_count"],
+                        is_first_import=context.is_first_import,
+                        hotel_local_time=context.hotel_local_time,
+                    )
+                    self.logger.info(
+                        "Registered reservations with ESB",
+                        hotel_code=context.hotel_code,
+                        reservations=chunk_result["reservation_count"],
+                        file_key=processed_upload["key"],
+                    )
 
             return True
 

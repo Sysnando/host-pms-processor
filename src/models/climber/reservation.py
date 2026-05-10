@@ -3,7 +3,7 @@
 from datetime import datetime
 from typing import Optional
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 
 class ClimberReservation(BaseModel):
@@ -126,6 +126,29 @@ class ClimberReservation(BaseModel):
         extra="forbid",  # Reject any extra fields not in this model
         alias_priority="alias",  # Use alias names for serialization
     )
+
+    @field_validator(
+        "revenue_fb",
+        "revenue_fb_invoice",
+        "revenue_others",
+        "revenue_others_invoice",
+        "revenue_room",
+        "revenue_room_invoice",
+        mode="before",
+    )
+    @classmethod
+    def round_revenue(cls, value: float) -> float:
+        """Round revenue fields to 2 decimal places to prevent floating-point precision errors.
+
+        Args:
+            value: Revenue value (may contain floating-point precision errors)
+
+        Returns:
+            Value rounded to 2 decimal places (standard for currency)
+        """
+        if value is None:
+            return 0.0
+        return round(float(value), 2)
 
 
 class ReservationCollection(BaseModel):

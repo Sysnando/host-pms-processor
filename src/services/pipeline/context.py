@@ -1,6 +1,6 @@
 """Pipeline context for sharing data between steps."""
 
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any
 
 
@@ -18,15 +18,29 @@ class PipelineContext:
             hotel_code: Hotel code being processed
         """
         self.hotel_code = hotel_code
-        self.start_time = datetime.utcnow()
+        self.worker_id: int | None = None
+        self.start_time = datetime.now(timezone.utc)
 
-        # Input parameters
+        # Input parameters from ESB
         self.last_import_date: str | None = None
+        self.min_import_date: str | None = None
+        self.max_import_date: str | None = None
+        self.is_first_import: bool = False  # True if KpisRecordDateMax was null/empty
+
+        # Calculated date ranges (based on ESB parameters)
+        self.calculated_reservation_from_date: str | None = None
+        self.calculated_stat_daily_start: str | None = None
+        self.calculated_stat_daily_end: str | None = None
+        self.calculated_inventory_from: str | None = None
+        self.calculated_inventory_to: str | None = None
 
         # Raw API responses
         self.config_response: dict[str, Any] | None = None
         self.reservations_response: dict[str, Any] | None = None
         self.stat_daily_records: list[dict[str, Any]] = []
+
+        # Hotel local time (extracted from config for ESB registration)
+        self.hotel_local_time: datetime | None = None
 
         # Transformed data
         self.config_data: Any = None
@@ -36,9 +50,6 @@ class PipelineContext:
 
         # S3 upload results
         self.s3_uploads: dict[str, dict[str, str]] = {}
-
-        # SQS messages to send
-        self.sqs_messages: list[dict[str, str]] = []
 
         # Processing statistics
         self.stats: dict[str, Any] = {}
@@ -59,7 +70,7 @@ class PipelineContext:
         self.errors.append({
             "step": step_name,
             "message": error_message,
-            "timestamp": datetime.utcnow().isoformat(),
+            "timestamp": datetime.now(timezone.utc).isoformat(),
         })
 
     def add_s3_upload(self, data_type: str, upload_result: dict[str, str]) -> None:
@@ -70,19 +81,6 @@ class PipelineContext:
             upload_result: Upload result containing 'key' and 'url'
         """
         self.s3_uploads[data_type] = upload_result
-
-    def add_sqs_message(self, file_type: str, file_key: str) -> None:
-        """Add an SQS message to be sent.
-
-        Args:
-            file_type: Type of file (e.g., 'config', 'reservations')
-            file_key: S3 key of the file
-        """
-        self.sqs_messages.append({
-            "hotel_code": self.hotel_code,
-            "file_type": file_type,
-            "file_key": file_key,
-        })
 
     def has_errors(self) -> bool:
         """Check if any errors were encountered.
@@ -98,7 +96,7 @@ class PipelineContext:
         Returns:
             Dictionary containing all results and statistics
         """
-        end_time = datetime.utcnow()
+        end_time = datetime.now(timezone.utc)
         duration = (end_time - self.start_time).total_seconds()
 
         return {
@@ -110,5 +108,4 @@ class PipelineContext:
             "errors": self.errors,
             "stats": self.stats,
             "s3_uploads": self.s3_uploads,
-            "sqs_messages": self.sqs_messages,
         }

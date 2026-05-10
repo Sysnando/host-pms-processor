@@ -1,11 +1,14 @@
-"""Step to send SQS notifications."""
+"""Step to send SQS notification to trigger import workflow."""
+
+import asyncio
 
 from src.aws import SQSManager
+from src.config import settings
 from src.services.pipeline import PipelineContext, PipelineStep
 
 
 class SendNotificationsStep(PipelineStep):
-    """Send SQS messages to trigger downstream processing."""
+    """Send final SQS message to trigger downstream import processing."""
 
     def __init__(self, sqs_manager: SQSManager):
         """Initialize the step.
@@ -17,7 +20,10 @@ class SendNotificationsStep(PipelineStep):
         self.sqs_manager = sqs_manager
 
     async def execute(self, context: PipelineContext) -> bool:
-        """Send SQS notifications.
+        """Send final SQS trigger message.
+
+        Sends a single message to the processor queue with the hotel code
+        to trigger the import workflow after all files are registered in ESB.
 
         Args:
             context: Pipeline context
@@ -26,35 +32,41 @@ class SendNotificationsStep(PipelineStep):
             True if successful, False otherwise
         """
         try:
+            # Get hotel code for S3/SQS (should be uppercase)
+            hotel_code_s3 = (
+                settings.hotel_code_s3 or settings.hotel.hotel_code_s3 or context.hotel_code
+            ).strip().upper()
+
             self.logger.info(
-                "Sending SQS messages",
+                "Sending final SQS trigger message",
                 hotel_code=context.hotel_code,
-                message_count=len(context.sqs_messages),
+                hotel_code_s3=hotel_code_s3,
+                message_group_id="HOST-CONNECTOR",
             )
 
-            for message in context.sqs_messages:
-                sqs_result = self.sqs_manager.send_message(
-                    hotel_code=message["hotel_code"],
-                    file_type=message["file_type"],
-                    file_key=message["file_key"],
-                )
-                message["sqs_message_id"] = sqs_result["message_id"]
+            # Send single processor message to trigger import workflow
+            sqs_result = await asyncio.to_thread(
+                self.sqs_manager.send_processor_message,
+                hotel_code_s3=hotel_code_s3,
+                message_group_id="HOST-CONNECTOR",
+            )
 
             self.logger.info(
-                "Sent SQS messages successfully",
+                "Sent SQS trigger message successfully",
                 hotel_code=context.hotel_code,
-                message_count=len(context.sqs_messages),
+                hotel_code_s3=hotel_code_s3,
+                message_id=sqs_result["message_id"],
             )
 
             return True
 
         except Exception as e:
             self.logger.error(
-                "Failed to send SQS messages",
+                "Failed to send SQS trigger message",
                 hotel_code=context.hotel_code,
                 error=str(e),
             )
-            context.add_error(self.name, f"Failed to send SQS messages: {str(e)}")
+            context.add_error(self.name, f"Failed to send SQS trigger message: {str(e)}")
             return False
 
     def is_required(self) -> bool:

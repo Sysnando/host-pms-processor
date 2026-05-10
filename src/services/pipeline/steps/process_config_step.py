@@ -1,5 +1,7 @@
 """Step to process hotel configuration."""
 
+import asyncio
+
 from src.aws import S3Manager
 from src.clients import ClimberESBClient, HostPMSAPIClient
 from src.services.pipeline import PipelineContext, PipelineStep
@@ -30,6 +32,10 @@ class ProcessConfigStep(PipelineStep):
     async def execute(self, context: PipelineContext) -> bool:
         """Process hotel configuration.
 
+        Fetches hotel config from Host PMS API and transforms it to extract
+        segments and room inventory. Uploads inventory to hotel-configs bucket
+        and registers with ESB.
+
         Args:
             context: Pipeline context
 
@@ -38,52 +44,118 @@ class ProcessConfigStep(PipelineStep):
         """
         try:
             # Fetch config from Host PMS
-            context.config_response = self.host_api_client.get_hotel_config(
-                context.hotel_code
-            )
-
-            # Upload raw config to S3
-            raw_upload = self.s3_manager.upload_raw(
+            self.logger.info(
+                "Fetching hotel config from Host PMS API",
                 hotel_code=context.hotel_code,
-                data_type="hotel-configs",
-                data=context.config_response,
             )
-            context.add_s3_upload("config_raw", raw_upload)
+            context.config_response = await asyncio.to_thread(
+                self.host_api_client.get_hotel_config, context.hotel_code
+            )
 
-            # Transform config
+            # Extract hotel local time from config for ESB registration
+            try:
+                from src.models.host.config import HotelConfigResponse
+
+                # Convert dict to HotelConfigResponse if needed
+                if isinstance(context.config_response, dict):
+                    config_model = HotelConfigResponse(**context.config_response)
+                else:
+                    config_model = context.config_response
+
+                context.hotel_local_time = config_model.hotel_info.local_time
+                if context.hotel_local_time:
+                    self.logger.info(
+                        "Extracted hotel local time from config",
+                        hotel_code=context.hotel_code,
+                        local_time=str(context.hotel_local_time),
+                    )
+            except Exception as e:
+                self.logger.warning(
+                    "Could not extract hotel local time from config",
+                    hotel_code=context.hotel_code,
+                    error=str(e),
+                )
+
+            # Transform config to extract segments
+            # Config data and segments are stored in context for other steps
             context.config_data, context.segments_collection = ConfigTransformer.transform(
                 context.config_response
             )
 
-            # Upload processed config to S3
-            processed_upload = self.s3_manager.upload_processed(
-                hotel_code=context.hotel_code,
-                data_type="hotel-configs",
-                data=context.config_data,
-            )
-            context.add_s3_upload("config_processed", processed_upload)
+            # Extract room inventory from config (CATEGORY items with Inventory field)
+            # This replaces the deprecated InventoryGrid API call
+            # Use calculated_stat_daily_start to align inventory with reservation data range
+            # Fallback to calculated_inventory_from if stat_daily_start is not available
+            inventory_from_date = context.calculated_stat_daily_start or context.calculated_inventory_from
 
-            # Register with ESB
-            await self.esb_client.register_file(
-                hotel_code=context.hotel_code,
-                file_type="config",
-                file_url=processed_upload["url"],
-                file_key=processed_upload["key"],
-                record_count=context.config_data.room_count,
-            )
+            if not inventory_from_date:
+                self.logger.warning(
+                    "No calculated date available for inventory, skipping inventory extraction",
+                    hotel_code=context.hotel_code,
+                )
+                context.room_inventory = None
+            else:
+                self.logger.info(
+                    "Extracting room inventory from config",
+                    hotel_code=context.hotel_code,
+                    inventory_from=inventory_from_date,
+                    source="calculated_stat_daily_start" if context.calculated_stat_daily_start else "calculated_inventory_from",
+                )
 
-            # Add SQS message
-            context.add_sqs_message("config", processed_upload["key"])
+                context.room_inventory = ConfigTransformer.get_room_inventory(
+                    context.config_response,
+                    execution_date=inventory_from_date,
+                )
+
+            # Upload raw config data
+            if context.config_response:
+                raw_upload = await asyncio.to_thread(
+                    self.s3_manager.upload_raw,
+                    hotel_code=context.hotel_code,
+                    data_type="hotel-configs",
+                    data=context.config_response,
+                )
+                context.add_s3_upload("config_raw", raw_upload)
+
+            # Upload processed inventory to hotel-configs bucket
+            if context.room_inventory and len(context.room_inventory.room_inventory) > 0:
+                processed_upload = await asyncio.to_thread(
+                    self.s3_manager.upload_processed,
+                    hotel_code=context.hotel_code,
+                    data_type="hotel-configs",
+                    data=context.room_inventory,
+                )
+                context.add_s3_upload("inventory_processed", processed_upload)
+
+                # Register with ESB
+                await self.esb_client.register_file(
+                    hotel_code=context.hotel_code,
+                    file_type="hotel-configs",
+                    file_url=processed_upload["url"],
+                    file_key=processed_upload["key"],
+                    record_count=len(context.room_inventory.room_inventory),
+                    is_first_import=context.is_first_import,
+                    hotel_local_time=context.hotel_local_time,
+                )
+
+                self.logger.info(
+                    "Uploaded and registered room inventory",
+                    hotel_code=context.hotel_code,
+                    room_count=len(context.room_inventory.room_inventory),
+                )
 
             # Store statistics
             context.stats["config"] = {
                 "room_count": context.config_data.room_count,
+                "segments_extracted": True,
+                "inventory_items": len(context.room_inventory.room_inventory) if context.room_inventory else 0,
             }
 
             self.logger.info(
                 "Processed config successfully",
                 hotel_code=context.hotel_code,
                 room_count=context.config_data.room_count,
+                inventory_items=len(context.room_inventory.room_inventory) if context.room_inventory else 0,
             )
 
             return True

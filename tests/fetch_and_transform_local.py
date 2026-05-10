@@ -38,6 +38,7 @@ load_dotenv()
 
 from structlog import get_logger
 from src.config.logging import configure_logging
+from src.config import settings
 from src.clients.host_api_client import HostPMSAPIClient
 from src.transformers.config_transformer import ConfigTransformer
 from tests.db.sql_generator import generate_sql_from_reservations
@@ -142,8 +143,8 @@ def fetch_and_transform_local(
             # Save transformed config
             config_transformed_file = hotel_dir / "01_config_transformed.json"
             config_data = {
-                "hotel_config": json.loads(hotel_config.model_dump_json()),
-                "segments": json.loads(segment_collection.model_dump_json())
+                "hotel_config": json.loads(hotel_config.model_dump_json(by_alias=True)),
+                "segments": json.loads(segment_collection.model_dump_json(by_alias=True))
             }
             with open(config_transformed_file, "w") as f:
                 json.dump(config_data, f, indent=2)
@@ -407,26 +408,29 @@ def fetch_and_transform_local(
     # ==================== STAT DAILY (INVOICE DATA) ====================
     logger.info("Loading StatDaily data", hotel_code=hotel_code)
     try:
-        # Calculate date range from arguments or use defaults
+        # Calculate date range from arguments or use settings defaults
         today = datetime.now().date()
 
         if stat_daily_start_date:
             # Parse custom start date from argument (YYYY-MM-DD format)
             start_date = datetime.strptime(stat_daily_start_date, "%Y-%m-%d").date()
         else:
-            # Default: 95 days ago
-            start_date = today - timedelta(days=95)
+            # Use settings for default (stat_daily_days_back_start)
+            start_date = today - timedelta(days=settings.host_pms.stat_daily_days_back_start)
 
         if stat_daily_end_date:
             # Parse custom end date from argument (YYYY-MM-DD format)
             end_date = datetime.strptime(stat_daily_end_date, "%Y-%m-%d").date()
         else:
-            # Default: 30 days ago
-            end_date = today - timedelta(days=30)
+            # Use settings for default (stat_daily_days_back_end)
+            # Negative value means future dates (e.g., -365 = 365 days in the future)
+            end_date = today - timedelta(days=settings.host_pms.stat_daily_days_back_end)
 
         print(f"   📅 Date range: {start_date} to {end_date}")
         if stat_daily_start_date or stat_daily_end_date:
             print(f"   ℹ️  Using custom date range from command-line arguments")
+        else:
+            print(f"   ℹ️  Using default date range from settings (days_back_start={settings.host_pms.stat_daily_days_back_start}, days_back_end={settings.host_pms.stat_daily_days_back_end})")
 
         # Fetch StatDaily for each date in range
         all_stat_daily_records = []
@@ -565,8 +569,47 @@ def fetch_and_transform_local(
                     inventory_response = json.load(f)
                 logger.info("Raw inventory loaded", hotel_code=hotel_code, file_path=str(inventory_raw_file))
         else:
-            # Fetch from API
-            inventory_response = client.get_inventory(hotel_code)
+            # Extract rate codes from config (ConfigType=RATECODE) — one request per rate code per window
+            rate_codes = []
+            if config_response:
+                try:
+                    from src.models.host.config import HotelConfigResponse
+                    cfg = HotelConfigResponse(**config_response) if isinstance(config_response, dict) else config_response
+                    rate_codes = [item.code for item in cfg.get_config_by_type("RATECODE")]
+                    print(f"   Found {len(rate_codes)} rate codes: {rate_codes}")
+                except Exception as e:
+                    logger.warning("Could not extract rate codes from config", hotel_code=hotel_code, error=str(e))
+
+            # Single 30-day window from today
+            from datetime import date
+            inv_start = date.today()
+            inv_end = inv_start + timedelta(days=29)
+            w_from = inv_start.isoformat()
+            w_to = inv_end.isoformat()
+
+            print(f"   Inventory window: {w_from} to {w_to}")
+
+            all_inventory = []
+            if rate_codes:
+                # One request per rate code for the 30-day window
+                for rc in rate_codes:
+                    try:
+                        resp = client.get_inventory(from_date=w_from, to_date=w_to, rate_code=rc, hotel_code=hotel_code)
+                        items = resp if isinstance(resp, list) else resp.get("InventoryGrid", resp.get("inventory", [resp] if resp else []))
+                        all_inventory.extend(items if isinstance(items, list) else [resp])
+                    except Exception as e:
+                        print(f"   rate_code={rc}: failed ({e})")
+            else:
+                # No rate codes — single request for the 30-day window
+                try:
+                    resp = client.get_inventory(from_date=w_from, to_date=w_to, hotel_code=hotel_code)
+                    items = resp if isinstance(resp, list) else resp.get("InventoryGrid", resp.get("inventory", [resp] if resp else []))
+                    all_inventory.extend(items if isinstance(items, list) else [resp])
+                except Exception as e:
+                    print(f"   window={w_from}/{w_to}: failed ({e})")
+
+            print(f"   Total inventory records fetched: {len(all_inventory)}")
+            inventory_response = all_inventory
 
             # Save raw inventory response
             inventory_raw_file = hotel_dir / "02_inventory_raw.json"

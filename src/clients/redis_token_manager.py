@@ -118,7 +118,10 @@ class RedisTokenManager:
             # Don't raise - token is still valid even if caching fails
 
     async def _fetch_new_token(self) -> dict[str, Any]:
-        """Fetch new OAuth token from ESB.
+        """Fetch new OAuth token from ESB using Basic Authentication.
+
+        The ESB requires Basic Authentication (client_id:client_secret encoded in base64)
+        in the Authorization header, not credentials in the request body.
 
         Returns:
             OAuth token response with access_token and expires_in
@@ -126,25 +129,71 @@ class RedisTokenManager:
         Raises:
             httpx.HTTPError: If OAuth request fails
         """
+        import base64
+
         token_url = f"{settings.esb.base_url.rstrip('/')}{settings.esb.oauth_token_url}"
+
+        # Prepare Basic Auth header (client_id:client_secret encoded in base64)
+        # Check both top-level settings.esb_basic_auth and nested settings.esb.basic_auth
+        basic_auth_value = (
+            settings.esb_basic_auth or settings.esb.basic_auth or ""
+        ).strip()
+
+        if basic_auth_value:
+            # Basic auth already provided (e.g., from ESB_BASIC_AUTH env var)
+            # Strip any "Basic " prefix if accidentally included
+            if basic_auth_value.startswith("Basic "):
+                basic_auth_value = basic_auth_value[6:].strip()
+            auth_header = f"Basic {basic_auth_value}"
+            logger.debug("Using pre-encoded ESB_BASIC_AUTH")
+        else:
+            # Construct from client_id and client_secret
+            client_id = (settings.esb.oauth_client_id or "").strip()
+            client_secret = (settings.esb.oauth_client_secret or "").strip()
+
+            if not client_id or not client_secret:
+                raise TokenManagerError(
+                    "ESB authentication credentials not configured. "
+                    "Set ESB_BASIC_AUTH or (ESB_OAUTH_CLIENT_ID + ESB_OAUTH_CLIENT_SECRET)"
+                )
+
+            credentials = f"{client_id}:{client_secret}"
+            encoded = base64.b64encode(credentials.encode()).decode()
+            auth_header = f"Basic {encoded}"
+            logger.debug("Auto-encoded Basic Auth from client_id:client_secret")
 
         payload = {
             "grant_type": settings.esb.oauth_grant_type,
-            "client_id": settings.esb.oauth_client_id,
-            "client_secret": settings.esb.oauth_client_secret,
         }
 
+        headers = {
+            "Content-Type": "application/x-www-form-urlencoded",
+            "Authorization": auth_header,
+        }
+
+        # Validate the Authorization header format
+        auth_parts = auth_header.split()
+        if len(auth_parts) != 2:
+            raise TokenManagerError(
+                f"Invalid Authorization header format. Expected 'Basic <base64>', got {len(auth_parts)} parts"
+            )
+        if auth_parts[0] != "Basic":
+            raise TokenManagerError(
+                f"Invalid Authorization method. Expected 'Basic', got '{auth_parts[0]}'"
+            )
+
         logger.debug(
-            "Requesting OAuth token",
+            "Requesting OAuth token with Basic Auth",
             token_url=token_url,
             grant_type=settings.esb.oauth_grant_type,
+            auth_header_format=f"Basic <{len(auth_parts[1])} chars>",
         )
 
         async with httpx.AsyncClient(timeout=settings.esb.request_timeout) as client:
             response = await client.post(
                 token_url,
                 data=payload,
-                headers={"Content-Type": "application/x-www-form-urlencoded"},
+                headers=headers,
             )
 
             if response.status_code != 200:
@@ -156,11 +205,33 @@ class RedisTokenManager:
                 response.raise_for_status()
 
             token_data = response.json()
+            access_token = token_data.get("access_token", "")
+
             logger.info(
                 "Successfully fetched OAuth token",
                 expires_in=token_data.get("expires_in"),
+                token_preview=f"{access_token[:20]}..." if len(access_token) > 20 else access_token,
             )
             return token_data
+
+    async def clear_cache(self) -> None:
+        """Clear cached OAuth token from Redis.
+
+        This forces a fresh token to be fetched on the next request.
+        Useful at process start to avoid using stale cached tokens.
+        """
+        try:
+            deleted = await self.redis_client.delete(self.REDIS_KEY)
+            if deleted:
+                logger.info("Cleared cached OAuth token from Redis")
+            else:
+                logger.debug("No cached token to clear")
+        except Exception as e:
+            logger.warning(
+                "Failed to clear token cache (non-critical)",
+                error=str(e),
+            )
+            # Don't raise - this is a nice-to-have cleanup
 
     async def close(self) -> None:
         """Close Redis connection.

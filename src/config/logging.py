@@ -9,6 +9,26 @@ from pythonjsonlogger import jsonlogger
 from src.config.settings import settings
 
 
+def _console_renderer(
+    logger: Any,
+    method_name: str,
+    event_dict: dict[str, Any],
+) -> str:
+    """Render log as: [time] [SEVERITY] [hotel] description (extra_key=value ...)."""
+    ts = event_dict.pop("timestamp", "")
+    level = event_dict.pop("level", method_name).upper()
+    event = event_dict.pop("event", "")
+    # Remove internal keys
+    event_dict.pop("logger_name", None)
+    event_dict.pop("logger", None)
+
+    extras = " ".join(f"{k}={v}" for k, v in event_dict.items()) if event_dict else ""
+    line = f"[{ts}] [{level}] {event}"
+    if extras:
+        line += f" ({extras})"
+    return line
+
+
 def add_hotel_code_prefix(
     logger: Any,
     method_name: str,
@@ -28,9 +48,13 @@ def add_hotel_code_prefix(
         Modified event dictionary with hotel code prefix
     """
     hotel_code = event_dict.get("hotel_code")
+    worker_id = event_dict.pop("worker_id", None)
     if hotel_code:
         current_event = event_dict.get("event", "")
-        event_dict["event"] = f"[{hotel_code}] {current_event}"
+        if worker_id is not None:
+            event_dict["event"] = f"[{hotel_code}-{worker_id}] {current_event}"
+        else:
+            event_dict["event"] = f"[{hotel_code}] {current_event}"
     return event_dict
 
 
@@ -71,11 +95,11 @@ def configure_logging() -> None:
             add_hotel_code_prefix,  # Add [HOTELCODE] prefix before rendering
             structlog.processors.JSONRenderer()
             if settings.logging.format == "json"
-            else structlog.dev.ConsoleRenderer(pad_event=25),  # Cleaner console output with padding
+            else _console_renderer,
         ],
         context_class=dict,
         logger_factory=structlog.stdlib.LoggerFactory(),
-        cache_logger_on_first_use=True,
+        cache_logger_on_first_use=False,
     )
 
 

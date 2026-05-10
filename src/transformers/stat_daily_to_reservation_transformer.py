@@ -194,30 +194,12 @@ class StatDailyToReservationTransformer:
         return default
 
     @staticmethod
-    def _extract_package_code(pack: Optional[str]) -> str:
-        """Extract package code from Pack field.
-
-        Pack format: "AP|RO" or "APA|BB" - extract first part before |
-
-        Args:
-            pack: Pack field from StatDaily
-
-        Returns:
-            Package code or "UNASSIGNED"
-        """
-        if pack and pack.strip():
-            # Take first part before |
-            parts = pack.split("|")
-            if parts:
-                return parts[0].strip()
-        return "UNASSIGNED"
-
-    @staticmethod
     def _transform_group_to_reservation(
         records: list[StatDailyRecord],
         hotel_code: str,
         hotel_local_time: Optional[datetime] = None,
         room_charge_codes: Optional[set[str]] = None,
+        is_first_import: bool = False,
     ) -> Optional[ClimberReservation]:
         """Transform a group of StatDaily records into a single ClimberReservation.
 
@@ -226,6 +208,7 @@ class StatDailyToReservationTransformer:
             hotel_code: Hotel code
             hotel_local_time: Hotel local time for record_date calculation
             room_charge_codes: Set of charge codes to treat as room revenue (from hotel config)
+            is_first_import: Whether this is a first import (uses CreatedOn for record_date)
 
         Returns:
             ClimberReservation object or None if transformation fails
@@ -271,21 +254,35 @@ class StatDailyToReservationTransformer:
         )
 
         # Calculate record_date (PostgreSQL date range format)
-        if hotel_local_time:
-            record_date_str = hotel_local_time.date().isoformat()
+        # If first import: use CreatedOn date from reservation
+        # Otherwise: use current execution date
+        if is_first_import:
+            # First import: use created_date from the reservation
+            record_date_str = created_date
         else:
-            record_date_str = datetime.now().date().isoformat()
+            # Regular import: use current execution time
+            execution_date = hotel_local_time.date() if hotel_local_time else datetime.now().date()
+            record_date_str = execution_date.isoformat()
+
         record_date = f"[{record_date_str},)"
 
-        # Build reservation_id_external (no separators - stored as Long in DB)
+        # Build reservation_id (no separators - stored as Long in DB)
+        # Format: ResId + GlobalResGuestId + MasterDetail (if > 0)
         if base_record.master_detail > 0:
+            reservation_id = (
+                f"{base_record.res_id}{base_record.global_res_guest_id}{base_record.master_detail}"
+            )
             reservation_id_external = (
                 f"{base_record.res_no}{base_record.global_res_guest_id}{base_record.master_detail}"
             )
         else:
+            reservation_id = (
+                f"{base_record.res_id}{base_record.global_res_guest_id}"
+            )
             reservation_id_external = (
                 f"{base_record.res_no}{base_record.global_res_guest_id}"
             )
+
 
         # Get occupancy data from occupancy records (HISTORY-OCCUPANCY or FORECAST-OCCUPANCY)
         # IMPORTANT: Sum room_nights and pax from ALL occupancy records
@@ -349,7 +346,7 @@ class StatDailyToReservationTransformer:
         group_code = StatDailyToReservationTransformer._get_segment_code(
             base_record.groupname
         )
-        package_code = StatDailyToReservationTransformer._extract_package_code(
+        package_code = StatDailyToReservationTransformer._get_segment_code(
             base_record.pack
         )
         rate_code = StatDailyToReservationTransformer._get_segment_code(
@@ -371,7 +368,7 @@ class StatDailyToReservationTransformer:
                 calendar_date_end=check_out,
                 created_date=created_date,
                 pax=pax,
-                reservation_id=str(base_record.res_id),
+                reservation_id=reservation_id,
                 reservation_id_external=reservation_id_external,
                 revenue_fb=0.0,  # Not extracting from StatDaily
                 revenue_fb_invoice=0.0,
@@ -411,6 +408,7 @@ class StatDailyToReservationTransformer:
         hotel_code: str,
         hotel_local_time: Optional[datetime] = None,
         config_response: HotelConfigResponse | dict[str, Any] | None = None,
+        is_first_import: bool = False,
     ) -> ReservationCollection:
         """Transform batch of StatDaily records into ReservationCollection.
 
@@ -426,6 +424,7 @@ class StatDailyToReservationTransformer:
             hotel_code: Hotel code
             hotel_local_time: Hotel local time for record_date calculation
             config_response: Hotel configuration for extracting charge codes
+            is_first_import: Whether this is a first import (uses CreatedOn for record_date)
 
         Returns:
             ReservationCollection with transformed reservations
@@ -468,9 +467,26 @@ class StatDailyToReservationTransformer:
                 hotel_code=hotel_code,
                 hotel_local_time=hotel_local_time,
                 room_charge_codes=room_charge_codes,
+                is_first_import=is_first_import,
             )
 
             if reservation:
+                # Skip reservations where all numeric fields are zero
+                if (
+                    reservation.rooms == 0
+                    and reservation.revenue_fb == 0
+                    and reservation.revenue_fb_invoice == 0
+                    and reservation.revenue_others == 0
+                    and reservation.revenue_others_invoice == 0
+                    and reservation.revenue_room == 0
+                    and reservation.revenue_room_invoice == 0
+                ):
+                    # logger.debug(
+                    #     "Skipping reservation with all-zero values",
+                    #     res_id=reservation.reservation_id,
+                    #     hotel_date=reservation.calendar_date,
+                    # )
+                    continue
                 reservations.append(reservation)
             else:
                 failed_count += 1
