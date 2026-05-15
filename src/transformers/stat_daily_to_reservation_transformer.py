@@ -13,6 +13,7 @@ from structlog import get_logger
 from src.models.climber.reservation import ClimberReservation, ReservationCollection
 from src.models.host.config import HotelConfigResponse
 from src.models.host.stat_daily import StatDailyRecord
+from src.utils.id_encoder import generate_small_id
 
 logger = get_logger(__name__)
 
@@ -282,6 +283,14 @@ class StatDailyToReservationTransformer:
             reservation_id_external = (
                 f"{base_record.res_no}{base_record.global_res_guest_id}"
             )
+
+        # Some PMS-side ids are alphanumeric; encode to a numeric Long so the
+        # DB column type (BIGINT) is preserved. Pure-digit ids are kept verbatim
+        # so existing rows match without a backfill.
+        if not reservation_id.isdigit():
+            reservation_id = str(generate_small_id(reservation_id))
+        if not reservation_id_external.isdigit():
+            reservation_id_external = str(generate_small_id(reservation_id_external))
 
 
         # Get occupancy data from occupancy records (HISTORY-OCCUPANCY or FORECAST-OCCUPANCY)
