@@ -119,6 +119,56 @@ class TestConfigTransformer:
         assert len(segments.packages) == 1  # PACKAGE
         assert len(segments.rates) == 1  # PRICELIST maps to rates
 
+    def test_config_item_normalizes_nested_code_dict(self):
+        """ConfigItem flattens nested {id, code, name} payloads on code/description."""
+        item = ConfigItem(
+            ConfigType="SEGMENT",
+            ConfigId=1,
+            Code={"id": "CONTRACT", "code": "CONTRACT", "name": "CORPORATE COM PROTOCOLO"},
+            Description={"id": "CONTRACT", "code": "CONTRACT", "name": "CORPORATE COM PROTOCOLO"},
+        )
+
+        assert item.code == "CONTRACT"
+        assert item.description == "CONTRACT"
+
+    def test_transform_segments_with_nested_code_objects(self):
+        """PTLISHAT-shaped payload: SEGMENT items where Code/Description are nested objects."""
+        config_data = {
+            "HotelInfo": {
+                "HotelId": 1,
+                "HotelCode": "PTLISHAT",
+                "HotelName": "Lis Hat",
+            },
+            "ConfigInfo": [
+                {
+                    "ConfigType": "SEGMENT",
+                    "ConfigId": 1,
+                    "Code": {
+                        "id": "CONTRACT",
+                        "code": "CONTRACT",
+                        "name": "CORPORATE COM PROTOCOLO",
+                    },
+                    "Description": {
+                        "id": "CONTRACT",
+                        "code": "CONTRACT",
+                        "name": "CORPORATE COM PROTOCOLO",
+                    },
+                    "Active": True,
+                },
+            ],
+        }
+
+        _, segments = ConfigTransformer.transform(config_data)
+
+        assert len(segments.segments) == 1
+        assert segments.segments[0].code == "CONTRACT"
+        assert segments.segments[0].name == "CONTRACT"
+
+        # The serialized JSON consumed by the Java pms-processor must be flat strings.
+        dumped = segments.model_dump(by_alias=True)
+        assert dumped["segments"][0]["code"] == "CONTRACT"
+        assert dumped["segments"][0]["name"] == "CONTRACT"
+
 
 class TestSegmentTransformer:
     """Tests for SegmentTransformer."""

@@ -3,7 +3,9 @@
 from datetime import datetime
 from typing import Any, Optional
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
+
+from src.models._normalizers import _extract_code_str
 
 
 class ConfigItem(BaseModel):
@@ -19,6 +21,11 @@ class ConfigItem(BaseModel):
     inventory: Optional[int] = Field(default=0, alias="Inventory")
     sales_group: str = Field(default="N/A", alias="SalesGroup")
     active: bool = Field(default=True, alias="Active")
+
+    @field_validator("code", "description", mode="before")
+    @classmethod
+    def _normalize_code(cls, value):
+        return _extract_code_str(value)
 
     class Config:
         extra = "allow"
