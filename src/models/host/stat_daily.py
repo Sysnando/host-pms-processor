@@ -3,7 +3,7 @@
 from datetime import datetime
 from typing import Optional
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 
 class StatDailyRecord(BaseModel):
@@ -18,11 +18,11 @@ class StatDailyRecord(BaseModel):
     total_rows: int = Field(alias="TotalRows")
     record_type: str = Field(alias="RecordType")  # e.g., "HISTORY-REVENUE", "HISTORY-OCCUPANCY", "FORECAST-REVENUE", "FORECAST-OCCUPANCY"
     hotel_date: datetime = Field(alias="HotelDate")
-    res_no: int = Field(alias="ResNo")
-    res_id: int = Field(alias="ResId")
+    res_no: str = Field(alias="ResNo")
+    res_id: str = Field(alias="ResId")
     detail_id: int = Field(alias="DetailId")
     master_detail: int = Field(alias="MasterDetail")
-    global_res_guest_id: int = Field(alias="GlobalResGuestId")
+    global_res_guest_id: str = Field(alias="GlobalResGuestId")
     created_on: datetime = Field(alias="CreatedOn")
     check_in: datetime = Field(alias="CheckIn")
     check_out: datetime = Field(alias="CheckOut")
@@ -56,6 +56,15 @@ class StatDailyRecord(BaseModel):
     sales_group_desc: Optional[str] = Field(None, alias="SalesGroupDesc")
     revenue_gross: float = Field(default=0.0, alias="RevenueGross")
     revenue_net: float = Field(default=0.0, alias="RevenueNet")
+
+    @field_validator("res_no", "res_id", "global_res_guest_id", mode="before")
+    @classmethod
+    def _coerce_id_to_str(cls, value):
+        """Accept either an int or an alphanumeric string from upstream and
+        store it as ``str`` so ``reservation_id`` concatenation works for both."""
+        if value is None:
+            return ""
+        return str(value)
 
     class Config:
         extra = "allow"

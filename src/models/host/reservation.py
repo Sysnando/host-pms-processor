@@ -19,7 +19,15 @@ class Guest(BaseModel):
     nationality_iso_code: Optional[str] = Field(None, alias="NationalityIsoCode")
     email_1: Optional[str] = Field(None, alias="Email1")
     email_2: Optional[str] = Field(None, alias="Email2")
-    global_res_guest_id: Optional[int] = Field(None, alias="GlobalResguestId")
+    global_res_guest_id: Optional[str] = Field(None, alias="GlobalResguestId")
+
+    @field_validator("global_res_guest_id", mode="before")
+    @classmethod
+    def _coerce_guest_id_to_str(cls, value):
+        """Accept either int or alphanumeric str from upstream."""
+        if value is None:
+            return None
+        return str(value)
 
     @field_validator("birth_date", mode="before")
     @classmethod
@@ -40,7 +48,7 @@ class Guest(BaseModel):
 class PriceItem(BaseModel):
     """Price/charge line item in reservation."""
 
-    global_res_guest_id: int = Field(alias="GlobalResguestId")
+    global_res_guest_id: str = Field(alias="GlobalResguestId")  # may be alphanumeric
     sales_group: int = Field(alias="SalesGroup")  # 0=Room, 1=F&B, etc.
     sales_group_desc: str = Field(alias="SalesGroupDesc")
     date: datetime = Field(alias="Date")
@@ -48,6 +56,14 @@ class PriceItem(BaseModel):
     amount: float = Field(alias="Amount")
     pax_type: int = Field(default=0, alias="PaxType")
     pax_type_desc: str = Field(alias="PaxTypeDesc")
+
+    @field_validator("global_res_guest_id", mode="before")
+    @classmethod
+    def _coerce_guest_id_to_str(cls, value):
+        """Accept either int or alphanumeric str from upstream."""
+        if value is None:
+            return ""
+        return str(value)
 
     @field_validator("date", mode="before")
     @classmethod
@@ -68,11 +84,11 @@ class PriceItem(BaseModel):
 class HostReservation(BaseModel):
     """Reservation from Host PMS API response."""
 
-    res_no: int = Field(alias="ResNo")  # Reservation number
-    res_id: int = Field(alias="ResId")  # Reservation ID
+    res_no: str = Field(alias="ResNo")  # Reservation number (may be alphanumeric)
+    res_id: str = Field(alias="ResId")  # Reservation ID (may be alphanumeric)
     detail_id: int = Field(alias="DetailId")
     master_detail: int = Field(default=0, alias="MasterDetail")
-    global_res_guest_id: int = Field(alias="GlobalResGuestId")
+    global_res_guest_id: str = Field(alias="GlobalResGuestId")  # may be alphanumeric
     created_on: datetime = Field(alias="CreatedOn")
     last_update: datetime = Field(alias="LastUpdate")
     check_in: datetime = Field(alias="CheckIn")
@@ -99,6 +115,15 @@ class HostReservation(BaseModel):
     prices: list[PriceItem] = Field(default_factory=list, alias="Prices")
     row_number: Optional[int] = Field(None, alias="RowNumber")
     total_rows: Optional[int] = Field(None, alias="TotalRows")
+
+    @field_validator("res_no", "res_id", "global_res_guest_id", mode="before")
+    @classmethod
+    def _coerce_id_to_str(cls, value):
+        """Accept either an int or an alphanumeric string from upstream and
+        store it as ``str`` so ``reservation_id`` concatenation works for both."""
+        if value is None:
+            return ""
+        return str(value)
 
     class Config:
         extra = "allow"
