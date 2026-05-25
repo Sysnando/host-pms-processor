@@ -2,7 +2,9 @@
 
 from typing import Optional
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
+
+from src.models._normalizers import _extract_code_str
 
 
 class RoomDefinition(BaseModel):
@@ -12,6 +14,11 @@ class RoomDefinition(BaseModel):
     name: str = Field(description="Room name")
     capacity: int = Field(default=0, description="Room capacity in guests")
     category: Optional[str] = Field(None, description="Room category")
+
+    @field_validator("code", "name", mode="before")
+    @classmethod
+    def _normalize_code(cls, value):
+        return _extract_code_str(value)
 
     class Config:
         extra = "allow"

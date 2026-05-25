@@ -192,6 +192,63 @@ class TestSegmentTransformer:
         assert collection.agencies[0].code == "AGENT1"
         assert collection.companies[0].code == "CORP1"
 
+    def test_transform_segments_accepts_nested_and_scalar_codes(self):
+        """SegmentTransformer must accept both lookup shapes across categories.
+
+        Shape A: code/name as nested {id, code, name} object.
+        Shape B: code/name as scalar strings.
+        Same shape contract applies to rooms, companies, packages, channels,
+        agencies, etc.
+        """
+        nested = lambda c, n: {"id": c, "code": c, "name": n}  # noqa: E731
+
+        segments = [
+            # Shape A — nested lookup
+            {
+                "code": nested("CONTRACT", "Corporate com Protocolo"),
+                "name": nested("CONTRACT", "Corporate com Protocolo"),
+                "type": "segment",
+                "enabledOtb": True,
+                "enabledRevenue": True,
+                "position": 9999,
+            },
+            {"code": nested("DBL", "Double Room"), "name": nested("DBL", "Double Room"), "type": "room"},
+            {"code": nested("CORP1", "Corp One"), "name": nested("CORP1", "Corp One"), "type": "company"},
+            {"code": nested("AP", "Accommodation"), "name": nested("AP", "Accommodation"), "type": "package"},
+            {"code": nested("SITE", "Site"), "name": nested("SITE", "Site"), "type": "channel"},
+            # Shape B — scalar
+            {
+                "code": "FIT",
+                "name": "Individual",
+                "type": "segment",
+                "enabledOtb": True,
+                "enabledRevenue": True,
+                "position": 9999,
+            },
+            {"code": "SGL", "name": "Single Room", "type": "room"},
+        ]
+
+        collection = SegmentTransformer.transform(segments)
+
+        # Both shapes flatten through the same code path.
+        assert {s.code for s in collection.segments} == {"CONTRACT", "FIT"}
+        assert {r.code for r in collection.rooms} == {"DBL", "SGL"}
+        assert [c.code for c in collection.companies] == ["CORP1"]
+        assert [p.code for p in collection.packages] == ["AP"]
+        assert [ch.code for ch in collection.channels] == ["SITE"]
+
+        # Every code/name surfaces as a flat string, never a dict.
+        for category in (
+            collection.segments,
+            collection.rooms,
+            collection.companies,
+            collection.packages,
+            collection.channels,
+        ):
+            for item in category:
+                assert isinstance(item.code, str)
+                assert isinstance(item.name, str)
+
     def test_transform_unmapped_segment_type(self):
         """Test that unmapped segment types go to default category."""
         segments = [

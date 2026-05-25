@@ -70,20 +70,30 @@ class SegmentTransformer:
         unmapped_count = 0
         for segment_data in host_segments:
             try:
-                # Convert dict to ConfigItem model if needed
+                # Normalize input to a dict so we can both build SegmentItem
+                # (Shape A nested / Shape B scalar are both handled by
+                # SegmentItem's _extract_code_str validator) and read `type`
+                # for categorization without a ConfigItem detour — ConfigItem
+                # expects Host-PMS aliases (Code/Description/ConfigType) and
+                # would reject lowercase Climber-shape input.
                 if isinstance(segment_data, dict):
-                    segment = ConfigItem(**segment_data)
+                    raw = segment_data
+                elif isinstance(segment_data, ConfigItem):
+                    raw = {
+                        "code": segment_data.code,
+                        "name": segment_data.description,
+                        "type": getattr(segment_data, "type", None),
+                    }
+                elif hasattr(segment_data, "model_dump"):
+                    raw = segment_data.model_dump(by_alias=True)
                 else:
-                    segment = segment_data
+                    raw = dict(segment_data)
 
-                # Create SegmentItem
-                segment_item = SegmentItem(
-                    code=segment.code,
-                    name=segment.code,
-                )
+                segment_item = SegmentItem(**raw)
+                segment_type = raw.get("type")
 
                 # Get category and add to appropriate list
-                category = SegmentTransformer._get_segment_category(segment.type)
+                category = SegmentTransformer._get_segment_category(segment_type)
 
                 # Get the attribute (e.g., "agencies", "channels", etc.)
                 if hasattr(segment_collection, category):
@@ -94,8 +104,8 @@ class SegmentTransformer:
                     unmapped_count += 1
                     logger.warning(
                         "Segment assigned to default category",
-                        segment_code=segment.code,
-                        segment_type=segment.type,
+                        segment_code=segment_item.code,
+                        segment_type=segment_type,
                         category="segments",
                     )
 
