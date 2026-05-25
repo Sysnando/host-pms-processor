@@ -12,6 +12,11 @@ The local testing setup allows you to:
 - ✅ Log SQS messages instead of sending to queue
 - ✅ Inspect all generated files for validation
 
+> **Sealed by design:** the local runner always uses mock S3, mock SQS, and mock ESB
+> clients. There is no env var or flag to switch to real S3/SQS/ESB — that flow lives
+> in `src/main.py` / `HostPMSConnectorOrchestrator`. Running `python -m tests.test_local_run`
+> cannot push to production.
+
 ## Components
 
 ### Mock Clients

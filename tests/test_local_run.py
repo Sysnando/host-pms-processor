@@ -3,37 +3,41 @@
 This script uses the LocalTestOrchestrator to test the full pipeline locally:
 - Fetches real data from Host PMS API OR reprocesses existing raw data
 - Saves files to data_extracts directory instead of S3
-- Logs ESB registrations instead of calling API (or uses real ESB if USE_REAL_ESB=true)
+- Logs ESB registrations instead of calling the ESB (no POST/PUT ever)
 - Logs SQS messages instead of sending
-- Optionally imports data to PostgreSQL database (if IMPORT_TO_DB=true)
+- Imports data to the local PostgreSQL database (default ON — set IMPORT_TO_DB=false to skip)
+
+This runner is sealed: S3, SQS, and ESB are always mocked. There is no env
+var or flag that can switch it to a real ESB/S3/SQS client.
 
 Usage (Fetch from API):
-    # Mock ESB (default - no real API calls)
+    # Default: fetches from API, writes JSON files, imports into the local DB
     python -m tests.test_local_run
 
-    # Real ESB with Redis + OAuth authentication
-    USE_REAL_ESB=true python -m tests.test_local_run
+    # Skip the DB import (still writes JSON files)
+    IMPORT_TO_DB=false python -m tests.test_local_run
 
-    # With database import enabled
-    IMPORT_TO_DB=true python -m tests.test_local_run
-
-    # Combined with hotel code, database import, and custom output
-    IMPORT_TO_DB=true USE_REAL_ESB=true HOTEL_CODE_S3=QUATRO_VIAS_SA OUTPUT_DIR=./my_output python -m tests.test_local_run
+    # With hotel code and custom output
+    HOTEL_CODE_S3=QUATRO_VIAS_SA OUTPUT_DIR=./my_output python -m tests.test_local_run
 
 Usage (Reprocess existing data - no API calls):
     # Reprocess from existing directory (avoids redundant API calls)
     RAW_DATA_PATH=HOTEL_CODE_20250401_123456 python -m tests.test_local_run
 
-    # Reprocess with database import
-    RAW_DATA_PATH=data_extracts/HOTEL_CODE_20250401_123456 IMPORT_TO_DB=true python -m tests.test_local_run
-
 Environment Variables:
     - RAW_DATA_PATH: Path to existing raw data directory for reprocessing (skips API calls)
-    - USE_REAL_ESB: Set to 'true' to use real ESB client (default: false)
-    - IMPORT_TO_DB: Set to 'true' to import data to PostgreSQL (default: false)
+    - IMPORT_TO_DB: 'true' (default) to import data to the local PostgreSQL after
+                    the pipeline completes; set to 'false' to skip the DB import.
     - HOTEL_CODE_S3: Climber hotel code to process (if not set, processes all hotels)
     - OUTPUT_DIR: Directory to save files (default: ./data_extracts)
     - DATABASE_URL: PostgreSQL connection string (required if IMPORT_TO_DB=true)
+    - FROM_DATE: Optional explicit start date (YYYY-MM-DD) for the import window.
+                 When set, bypasses the is-first-import branching logic.
+    - TO_DATE:   Optional explicit end date (YYYY-MM-DD) for the import window.
+                 When set, bypasses the is-first-import branching logic.
+    - IS_FIRST_IMPORT: Optional override ('true' / 'false') for the is_first_import
+                 flag on the pipeline context. Useful when forcing a fresh-style
+                 import while still pinning an explicit date range.
 """
 
 import asyncio
@@ -53,10 +57,29 @@ load_dotenv()
 
 from src.config import configure_logging, get_logger, settings
 from src.clients.host_api_client import HostPMSAPIClient
+from src.aws.mock_s3_manager import MockS3Manager
+from src.aws.mock_sqs_manager import MockSQSManager
+from src.clients.mock_esb_client import MockClimberESBClient
 from src.transformers.config_transformer import ConfigTransformer
 from src.transformers.stat_daily_to_reservation_transformer import StatDailyToReservationTransformer
 from src.models.host.config import HotelConfigResponse
 from tests.local_test_orchestrator import LocalTestOrchestrator
+
+
+def _assert_sealed(orchestrator: LocalTestOrchestrator) -> None:
+    """Refuse to run if any external client is not a mock.
+
+    Belt-and-suspenders: LocalTestOrchestrator is wired to mocks only, but this
+    catches regressions if a future change re-introduces a real-client path.
+    """
+    if not isinstance(orchestrator.esb_client, MockClimberESBClient):
+        raise RuntimeError(
+            "Local test must use MockClimberESBClient — refusing to run against real ESB"
+        )
+    if not isinstance(orchestrator.s3_manager, MockS3Manager):
+        raise RuntimeError("Local test must use MockS3Manager — refusing to run against real S3")
+    if not isinstance(orchestrator.sqs_manager, MockSQSManager):
+        raise RuntimeError("Local test must use MockSQSManager — refusing to run against real SQS")
 
 # Optional PostgreSQL imports (for local testing only)
 try:
@@ -73,45 +96,78 @@ except ImportError:
 logger = get_logger(__name__)
 
 
-def fetch_stat_summary(hotel_code: str, hotel_dir: Path) -> None:
+def _parse_quota_window(error_msg: str) -> tuple[int | None, str | None]:
+    """Extract (limit, window) from a Host PMS quota error like
+    'maximum admitted 200 per Hour'. Returns (None, None) when not present.
+    """
+    import re
+
+    match = re.search(r"maximum admitted (\d+) per (\w+)", error_msg, re.IGNORECASE)
+    if not match:
+        match = re.search(r"(\d+) per (\w+)", error_msg, re.IGNORECASE)
+    if not match:
+        return None, None
+    return int(match.group(1)), match.group(2).lower()
+
+
+def fetch_stat_summary(
+    hotel_code: str,
+    hotel_dir: Path,
+    from_date_override: str | None = None,
+    to_date_override: str | None = None,
+    client: HostPMSAPIClient | None = None,
+) -> None:
     """Fetch StatSummary validation data from Host PMS API.
 
     Args:
         hotel_code: Hotel code to fetch data for
         hotel_dir: Directory to save the data
+        from_date_override: Optional explicit start date (YYYY-MM-DD).
+        to_date_override: Optional explicit end date (YYYY-MM-DD).
+        client: Optional preconfigured HostPMSAPIClient (with the per-hotel
+            subscription key). If omitted, falls back to a default client built
+            from .env — which has its own quota and may already be exhausted.
 
     Notes:
-        If API rate limit (429) is hit, waits 60 seconds and retries
+        On 429 we parse the actual quota window from the error message. Sub-hour
+        windows (Second/Minute) get a short backoff and one retry. Hour-or-larger
+        windows are not retried — waiting that long inside a test run is wrong;
+        we skip and surface a clear message instead.
     """
     print(f"\n📊 Fetching StatSummary validation data...")
 
-    # Calculate date range: 2 years in the past and 1 year ahead
     today = datetime.now().date()
-    start_date = today - timedelta(days=730)  # 2 years back
-    end_date = today + timedelta(days=365)    # 1 year ahead
+    if from_date_override:
+        from_date_str = from_date_override
+    else:
+        from_date_str = (today - timedelta(days=730)).isoformat()  # 2 years back
+    if to_date_override:
+        to_date_str = to_date_override
+    else:
+        to_date_str = (today + timedelta(days=365)).isoformat()  # 1 year ahead
 
-    from_date_str = start_date.isoformat()
-    to_date_str = end_date.isoformat()
+    if from_date_override or to_date_override:
+        range_note = "FROM_DATE/TO_DATE override"
+    else:
+        range_note = "2 years past + 1 year ahead"
+    print(f"   📅 Date range: {from_date_str} to {to_date_str} ({range_note})")
 
-    print(f"   📅 Date range: {from_date_str} to {to_date_str} (2 years past + 1 year ahead)")
+    if client is None:
+        print(f"   ⚠️  No hotel-specific client provided — falling back to .env default subscription key")
+    api_client = client or HostPMSAPIClient()
 
-    # Retry loop for rate limit handling
-    max_retries = 3
-    retry_count = 0
+    max_short_retries = 2  # retries for sub-hour quotas only
+    short_retry_count = 0
 
-    while retry_count < max_retries:
+    while True:
         try:
-            # Create API client and fetch StatSummary
-            client = HostPMSAPIClient()
-            stat_summary_response = client.get_stat_summary(
+            stat_summary_response = api_client.get_stat_summary(
                 from_date=from_date_str,
                 to_date=to_date_str,
-                hotel_code=hotel_code
+                hotel_code=hotel_code,
             )
 
-            # Save raw StatSummary data
             if stat_summary_response:
-                # Use MockS3Manager naming convention
                 timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
                 stat_summary_file = hotel_dir / f"raw_stat_summary-{timestamp}.json"
                 with open(stat_summary_file, "w") as f:
@@ -119,53 +175,73 @@ def fetch_stat_summary(hotel_code: str, hotel_dir: Path) -> None:
                 print(f"   ✅ StatSummary saved: {stat_summary_file.name} ({len(stat_summary_response)} records)")
             else:
                 print(f"   ⚠️  No StatSummary data returned from API")
-
-            # Success - exit retry loop
             return
 
         except Exception as e:
             error_msg = str(e)
-
-            # Check for API rate limit exceeded (429 status code)
-            if "429" in error_msg or "API calls quota exceeded" in error_msg or "quota exceeded" in error_msg.lower():
-                retry_count += 1
-
-                if retry_count < max_retries:
-                    print(f"\n⚠️  API rate limit exceeded! (attempt {retry_count}/{max_retries})")
-                    print(f"   Error: {error_msg}")
-                    print(f"   The Host PMS API has a limit of 60 calls per second.")
-                    print(f"   ⏳ Waiting 60 seconds before retrying...")
-
-                    logger.warning(
-                        "API rate limit exceeded - waiting before retry",
-                        hotel_code=hotel_code,
-                        error=error_msg,
-                        status_code=429,
-                        retry_attempt=retry_count,
-                        wait_seconds=60
-                    )
-
-                    # Wait 60 seconds before retry
-                    time.sleep(60)
-                    print(f"   🔄 Retrying StatSummary fetch...")
-                else:
-                    # Max retries reached
-                    print(f"\n❌ ERROR: API rate limit exceeded after {max_retries} attempts!")
-                    print(f"   Error: {error_msg}")
-                    print(f"   Skipping StatSummary fetch for this hotel.")
-                    logger.error(
-                        "API rate limit exceeded - max retries reached, skipping",
-                        hotel_code=hotel_code,
-                        error=error_msg,
-                        status_code=429,
-                        max_retries=max_retries
-                    )
-                    return  # Skip this hotel's StatSummary, continue processing
-            else:
-                # For other errors, log and continue
+            is_rate_limit = (
+                "429" in error_msg
+                or "quota exceeded" in error_msg.lower()
+            )
+            if not is_rate_limit:
                 print(f"   ❌ Error fetching StatSummary: {error_msg}")
-                logger.error("Error fetching StatSummary", hotel_code=hotel_code, error=error_msg, exc_info=True)
-                return  # Exit on non-rate-limit errors
+                logger.error(
+                    "Error fetching StatSummary",
+                    hotel_code=hotel_code,
+                    error=error_msg,
+                    exc_info=True,
+                )
+                return
+
+            limit, window = _parse_quota_window(error_msg)
+            window_norm = (window or "").lower()
+
+            if window_norm in ("hour", "day"):
+                # Waiting hours inside a test run is wrong. Fail fast with a
+                # clear explanation so the user knows what to do.
+                print(f"\n❌ Host PMS hourly/daily quota exhausted on this subscription key — skipping StatSummary.")
+                print(f"   Error: {error_msg}")
+                print(f"   Parsed quota: {limit} per {window}.")
+                print(f"   The pipeline's StatDaily fan-out can consume this quota when the same key is shared with the .env default.")
+                print(f"   Resolution: wait for the quota window to reset, or use a per-hotel subscription key with sufficient budget.")
+                logger.error(
+                    "StatSummary skipped: quota window too long to wait inside test run",
+                    hotel_code=hotel_code,
+                    error=error_msg,
+                    quota_limit=limit,
+                    quota_window=window,
+                )
+                return
+
+            # Sub-hour windows (Second / Minute) — short backoff and one retry.
+            short_retry_count += 1
+            if short_retry_count > max_short_retries:
+                print(f"\n❌ Sub-hour rate limit persisted after {max_short_retries} retries — skipping StatSummary.")
+                print(f"   Error: {error_msg}")
+                logger.error(
+                    "StatSummary skipped: sub-hour rate limit retries exhausted",
+                    hotel_code=hotel_code,
+                    error=error_msg,
+                    quota_limit=limit,
+                    quota_window=window,
+                )
+                return
+
+            wait_seconds = 65 if window_norm == "minute" else 5
+            print(
+                f"\n⚠️  Rate limit hit (parsed: {limit} per {window or 'unknown'}). "
+                f"Backing off {wait_seconds}s then retrying ({short_retry_count}/{max_short_retries})…"
+            )
+            logger.warning(
+                "StatSummary rate-limited; backing off",
+                hotel_code=hotel_code,
+                error=error_msg,
+                quota_limit=limit,
+                quota_window=window,
+                wait_seconds=wait_seconds,
+                retry_attempt=short_retry_count,
+            )
+            time.sleep(wait_seconds)
 
 
 def reprocess_from_raw_data(raw_data_path: str, output_dir: str, import_to_db: bool) -> int:
@@ -387,9 +463,22 @@ async def main() -> int:
     """
     # Get configuration from environment
     output_dir = os.getenv("OUTPUT_DIR", "./data_extracts")
-    use_real_esb = os.getenv("USE_REAL_ESB", "false").lower() == "true"
-    import_to_db = os.getenv("IMPORT_TO_DB", "false").lower() == "true"
+    import_to_db = os.getenv("IMPORT_TO_DB", "true").lower() == "true"
     raw_data_path = os.getenv("RAW_DATA_PATH")
+    from_date_override = os.getenv("FROM_DATE") or None
+    to_date_override = os.getenv("TO_DATE") or None
+    is_first_import_override: bool | None
+    raw_is_first = os.getenv("IS_FIRST_IMPORT")
+    if raw_is_first is None or raw_is_first == "":
+        is_first_import_override = None
+    elif raw_is_first.lower() in ("true", "1", "yes"):
+        is_first_import_override = True
+    elif raw_is_first.lower() in ("false", "0", "no"):
+        is_first_import_override = False
+    else:
+        raise ValueError(
+            f"IS_FIRST_IMPORT must be true/false (got {raw_is_first!r})"
+        )
 
     # If RAW_DATA_PATH is set, skip orchestrator and reprocess existing data
     if raw_data_path:
@@ -406,16 +495,25 @@ async def main() -> int:
         "Starting Local Test Pipeline",
         environment=settings.environment,
         output_dir=output_dir,
-        use_real_esb=use_real_esb,
         import_to_db=import_to_db,
     )
 
     try:
-        # Create orchestrator with custom settings
         orchestrator = LocalTestOrchestrator(
             output_dir=output_dir,
-            use_real_esb=use_real_esb,
+            from_date=from_date_override,
+            to_date=to_date_override,
+            is_first_import=is_first_import_override,
         )
+        _assert_sealed(orchestrator)
+
+        if from_date_override or to_date_override or is_first_import_override is not None:
+            logger.info(
+                "Local date-range override active",
+                from_date=from_date_override,
+                to_date=to_date_override,
+                is_first_import=is_first_import_override,
+            )
 
         # Check if specific hotel code is configured
         hotel_code = (settings.hotel_code_s3 or settings.hotel.hotel_code_s3 or "").strip()
@@ -444,9 +542,17 @@ async def main() -> int:
             print(f"\nFiles saved to: {Path(output_dir).absolute()}")
             print("=" * 80 + "\n")
 
-            # Fetch StatSummary validation data
+            # Fetch StatSummary validation data — reuse the per-hotel client
+            # the orchestrator built from getIntegration to avoid switching to
+            # the .env default key (and burning a separate quota).
             hotel_dir = Path(output_dir) / f"{hotel_code}_{orchestrator.s3_manager.timestamp}"
-            fetch_stat_summary(hotel_code, hotel_dir)
+            fetch_stat_summary(
+                hotel_code,
+                hotel_dir,
+                from_date_override=from_date_override,
+                to_date_override=to_date_override,
+                client=orchestrator.hotel_api_clients.get(hotel_code),
+            )
 
             # Import to database if enabled
             if import_to_db:
@@ -487,7 +593,13 @@ async def main() -> int:
                         # Extract hotel code from directory name (e.g., HOTEL_CODE_20250401_123456)
                         dir_name = hotel_dir.name
                         hotel_code = dir_name.split("_")[0]
-                        fetch_stat_summary(hotel_code, hotel_dir)
+                        fetch_stat_summary(
+                            hotel_code,
+                            hotel_dir,
+                            from_date_override=from_date_override,
+                            to_date_override=to_date_override,
+                            client=orchestrator.hotel_api_clients.get(hotel_code),
+                        )
 
             # Import to database if enabled (process all hotel directories)
             if import_to_db and results["successful_hotels"] > 0:
@@ -533,8 +645,7 @@ if __name__ == "__main__":
     configure_logging()
 
     # Check environment variables
-    use_real_esb = os.getenv("USE_REAL_ESB", "false").lower() == "true"
-    import_to_db = os.getenv("IMPORT_TO_DB", "false").lower() == "true"
+    import_to_db = os.getenv("IMPORT_TO_DB", "true").lower() == "true"
     raw_data_path = os.getenv("RAW_DATA_PATH")
 
     # Print banner
@@ -549,15 +660,9 @@ if __name__ == "__main__":
         print("=" * 80)
     else:
         print("Mode: FETCH FROM API (pulls fresh data from Host PMS)")
-        print("Files will be saved locally for inspection (no S3/SQS)")
+        print("Files will be saved locally for inspection (no S3/SQS/ESB)")
         print("=" * 80)
-
-        if use_real_esb:
-            print("ESB Mode: REAL (Redis + OAuth authentication)")
-            print(f"ESB URL: {os.getenv('ESB_BASE_URL', 'from settings')}")
-            print(f"Redis: {os.getenv('REDIS_HOST', 'localhost')}:{os.getenv('REDIS_PORT', '6379')}")
-        else:
-            print("ESB Mode: MOCK (no real API calls)")
+        print("ESB Mode: MOCK (sealed — no real ESB calls possible)")
 
     # Database import status (applies to both modes)
     if import_to_db:

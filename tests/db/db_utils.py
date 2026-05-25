@@ -3,9 +3,28 @@
 import os
 
 import psycopg2
+from psycopg2 import sql
 from structlog import get_logger
 
 logger = get_logger(__name__)
+
+
+def _apply_hotel_schema(conn) -> None:
+    """If HOTEL_SCHEMA is set, restrict the session's search_path to that schema.
+
+    All importers use unqualified table names (e.g. `reservations2`), so setting
+    search_path here is enough to direct CREATE/INSERT into the hotel's schema.
+    """
+    schema = os.environ.get("HOTEL_SCHEMA")
+    if not schema:
+        return
+
+    with conn.cursor() as cur:
+        cur.execute(
+            sql.SQL("SET search_path TO {}, public").format(sql.Identifier(schema))
+        )
+    conn.commit()
+    logger.info("Applied per-hotel search_path", schema=schema)
 
 
 def get_db_connection():
@@ -14,6 +33,10 @@ def get_db_connection():
     This function tries to connect using DATABASE_URL first, then falls back
     to individual environment variables (DB_NAME, DB_USER, DB_HOST, etc.).
 
+    If the ``HOTEL_SCHEMA`` environment variable is set, the connection's
+    ``search_path`` is restricted to that schema (plus ``public``) so all
+    table operations resolve inside the hotel's schema.
+
     Environment Variables:
         DATABASE_URL: Full PostgreSQL connection string (preferred)
         DB_NAME: Database name (required if DATABASE_URL not set)
@@ -21,6 +44,7 @@ def get_db_connection():
         DB_HOST: Database host (default: localhost)
         DB_PORT: Database port (default: 5432)
         DB_PASSWORD: Database password (default: empty string)
+        HOTEL_SCHEMA: Optional per-hotel schema name (set search_path on connect)
 
     Returns:
         psycopg2 connection object
@@ -34,7 +58,9 @@ def get_db_connection():
 
     if database_url:
         logger.info("Connecting to PostgreSQL using DATABASE_URL")
-        return psycopg2.connect(database_url)
+        conn = psycopg2.connect(database_url)
+        _apply_hotel_schema(conn)
+        return conn
 
     # Otherwise, build from individual components
     db_name = os.environ.get("DB_NAME")
@@ -62,4 +88,6 @@ def get_db_connection():
         user=db_config["user"],
     )
 
-    return psycopg2.connect(**db_config)
+    conn = psycopg2.connect(**db_config)
+    _apply_hotel_schema(conn)
+    return conn

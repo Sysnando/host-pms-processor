@@ -20,6 +20,28 @@ class MockClimberESBClient:
     def __init__(self):
         """Initialize the mock ESB client."""
         logger.info("MockClimberESBClient initialized")
+        self._real_client = None  # lazily built for read-only passthrough
+
+    def _get_real_client(self):
+        """Lazily build a real ClimberESBClient for read-only calls (get_integration)."""
+        if self._real_client is None:
+            from src.clients.esb_client import ClimberESBClient
+
+            self._real_client = ClimberESBClient()
+        return self._real_client
+
+    async def get_integration(self, integration_type: str) -> list[dict[str, Any]]:
+        """Read-only passthrough to the real ESB getIntegration endpoint.
+
+        This is intentionally NOT mocked: get_integration is a pure GET that
+        returns the list of hotels and their credentials, which the local test
+        needs to drive real PMS API fetches. No data is written to ESB.
+        """
+        logger.info(
+            "REAL (read-only): fetching integration list from ESB",
+            integration_type=integration_type,
+        )
+        return await self._get_real_client().get_integration(integration_type)
 
     async def get_hotels(self) -> list[dict[str, Any]]:
         """Return mock list of configured hotels.
@@ -71,17 +93,20 @@ class MockClimberESBClient:
             hotel_code=hotel_code,
         )
 
-        # Calculate test dates
+        # Calculate test dates. Emit the ESB-style "...Z" suffix without the
+        # tz-aware "+00:00" that datetime.isoformat() would otherwise inject —
+        # production code does `.replace('Z', '+00:00')` and breaks on doubles.
         now = datetime.now(timezone.utc)
         last_import = now - timedelta(days=7)
         min_import = now - timedelta(days=30)
         max_import = now
 
+        _fmt = "%Y-%m-%dT%H:%M:%SZ"
         parameters = {
             "hotelCode": hotel_code,
-            "lastImportDate": last_import.isoformat() + "Z",
-            "minImportDate": min_import.isoformat() + "Z",
-            "maxImportDate": max_import.isoformat() + "Z",
+            "lastImportDate": last_import.strftime(_fmt),
+            "minImportDate": min_import.strftime(_fmt),
+            "maxImportDate": max_import.strftime(_fmt),
             "isFirstImport": False,  # Mock always returns existing hotel with import history
         }
 
